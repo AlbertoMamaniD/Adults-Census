@@ -1,0 +1,13 @@
+.backup_ml/
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.env
+data/*.csv
+artifacts/*.joblib
+artifacts/*.db
+!artifacts/.gitkeep
+!artifacts/*.json
+*.joblib
+*.db
+.DS_Store
