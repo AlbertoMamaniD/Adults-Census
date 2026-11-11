@@ -1,0 +1,44 @@
+{
+  "model_version": "v20261111222307",
+  "model_name": "Gradient boosting",
+  "trained_at": "2026-11-11T22:27:25.855398+00:00",
+  "threshold": 0.7949999999999999,
+  "positive_label": ">50K",
+  "negative_label": "<=50K",
+  "numeric_columns": [
+    "age",
+    "education_num",
+    "capital_gain",
+    "capital_loss",
+    "hours_per_week"
+  ],
+  "categorical_columns": [
+    "workclass",
+    "marital_status",
+    "occupation",
+    "relationship",
+    "race",
+    "sex",
+    "native_country"
+  ],
+  "metrics": {
+    "threshold": 0.7949999999999999,
+    "mcc": 0.6165699670101271,
+    "precision": 0.8053173241852487,
+    "recall": 0.5988520408163265,
+    "f1": 0.6869056327724945,
+    "roc_auc": 0.9216623719325787,
+    "average_precision": 0.817022545269169,
+    "accuracy": 0.8684695759065765,
+    "true_negatives": 4713,
+    "false_positives": 227,
+    "false_negatives": 629,
+    "true_positives": 939,
+    "expected_cost": 1310.0
+  },
+  "parameters": {},
+  "sklearn_version": "1.9.1",
+  "random_state": 42,
+  "cost_fp": 3.0,
+  "cost_fn": 1.0
+}
