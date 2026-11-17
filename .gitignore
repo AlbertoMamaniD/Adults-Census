@@ -5,11 +5,11 @@ __pycache__/
 .env
 data/*.csv
 artifacts/*.joblib
-!artifacts/model_latest.joblib
+!artifacts/model_*.joblib
 artifacts/*.db
 !artifacts/.gitkeep
 !artifacts/*.json
 *.joblib
-!artifacts/model_latest.joblib
+!artifacts/model_*.joblib
 *.db
 .DS_Store

@@ -52,7 +52,7 @@ Se recomienda una de las siguientes opciones según tu preferencia:
 
 ## 📑 Registro de Evidencias
 
-| N° | Pull Request | Descripción del Cambio | Revisión Emitida por la IA | Enlace / Captura |
-|---|---|---|---|---|
-| 1 | PR #1: Feature Endpoints API | Implementación de `/predict`, `/retrain` y conexión a Supabase | Análisis de validación de esquemas y sugerencias de manejo de errores | `docs/evidencia-pr/pr_review_1.png` |
+| N° | Pull Request | Rama Origen ➔ Destino | Descripción del Cambio | Revisión y Observaciones de la IA (Qodo Merge) | Captura de Evidencia | Resolución Implementada |
+|---|---|---|---|---|:---:|---|
+| 1 | **PR #1: CRISP-ML(Q)** | `feature/ciencia-de-datos` ➔ `develop` | Publicación del modelo supervisado (`model_latest.joblib`), metadatos (`metadata_latest.json`) con 4/4 metas y configuración de dependencias. | **Detectó 2 bugs de nivel Medium:**<br>1. *Dependencies mismatch:* `scikit-learn 1.9.1` y `numpy 2` en serialización vs bounds permisivos en requirements.<br>2. *Threshold consistency:* `metadata_latest.json` tiene umbral 0.77 mientras `AGENTS.md` decía 0.79. | ![Qodo Bug 1](./pr1_qodo_bug1_numpy_sklearn.png)<br>![Qodo Bug 2](./pr1_qodo_bug2_threshold_guidance.png) | **Resuelto:**<br>1. Fijar `scikit-learn==1.9.1` y `numpy>=2.0.0` en `requirements.txt` y `backend/requirements.txt`.<br>2. Sincronizar `threshold = 0.77` en `AGENTS.md` y `.github/AGENTS.md`.<br>3. Incluir `model_v20261117002816.joblib` y permitir `!artifacts/model_*.joblib` en `.gitignore`. |
 
