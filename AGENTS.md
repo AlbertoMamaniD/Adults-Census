@@ -16,7 +16,7 @@
 * **Función de Costo Asimétrica:** $C = 3 \times FP + 1 \times FN$.
   * **Falso Positivo (FP):** Otorgar crédito a un cliente insolvente (riesgo crítico de mora, penalización 3x).
   * **Falso Negativo (FN):** Dejar pasar un cliente solvente (costo de oportunidad comercial, penalización 1x).
-  * **Umbral de Decisión Calibrado:** `threshold = 0.79` (determinado en validación para minimizar el costo esperado).
+  * **Umbral de Decisión Calibrado:** `threshold = 0.77` (determinado en validación mediante optimización de umbral robusto mediano para asegurar 100% de metas y estabilidad en producción). Las implementaciones del backend deben leer dinámicamente este umbral desde `artifacts/metadata_latest.json` en vez de usar valores quemados en código.
 
 ---
 
@@ -114,9 +114,9 @@ Cualquier endpoint generado en `backend/app/routes/` debe implementar esquemas P
   {
     "predicted_class": "<=50K",
     "probability": 0.1824,
-    "threshold_applied": 0.79,
+    "threshold_applied": 0.77,
     "latency_ms": 12.4,
-    "model_version": "v20261111222307",
+    "model_version": "v20261117002816",
     "recommendation": "No califica para producto de crédito de alto monto."
   }
   ```
@@ -130,17 +130,17 @@ Cualquier endpoint generado en `backend/app/routes/` debe implementar esquemas P
 * **Response Body (200 OK):**
   ```json
   {
-    "model_version": "v20261111222307",
+    "model_version": "v20261117002816",
     "model_name": "Gradient boosting",
-    "trained_at": "2026-11-11T22:27:25Z",
-    "threshold": 0.79,
+    "trained_at": "2026-11-17T00:32:24Z",
+    "threshold": 0.77,
     "metrics": {
-      "mcc": 0.6236,
-      "precision": 0.8044,
-      "recall": 0.6110,
-      "roc_auc": 0.9248,
-      "accuracy": 0.8695,
-      "confusion_matrix": { "tn": 4713, "fp": 227, "fn": 629, "tp": 939 }
+      "mcc": 0.6192,
+      "precision": 0.7840,
+      "recall": 0.6250,
+      "roc_auc": 0.9217,
+      "accuracy": 0.8682,
+      "confusion_matrix": { "tn": 4670, "fp": 270, "fn": 588, "tp": 980 }
     }
   }
   ```
