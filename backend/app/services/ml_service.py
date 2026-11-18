@@ -7,6 +7,8 @@ from fastapi import HTTPException, status
 import joblib
 import pandas as pd
 from sqlalchemy.orm import Session
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from app.config import settings
 from app.database.models import ModelRun, Prediction
 from app.schemas.prediction import PredictionInput, PredictionResponse
@@ -126,7 +128,7 @@ class MLService:
         # Persistir auditoría en base de datos si la sesión está disponible
         prediction_id = None
         if db is not None:
-            # 1. Asegurar registro de ModelRun ante recuperación post-caída de BD (Finding 4)
+            # 1. Asegurar registro de ModelRun ante recuperación post-caída de BD (Qodo Findings 1 y 2)
             try:
                 run_exists = db.query(ModelRun).filter(ModelRun.model_version == self.model_version).first()
                 if not run_exists:
@@ -141,24 +143,48 @@ class MLService:
                         **raw_m,
                         "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
                     }
-                    # Si el modelo en servicio es de respaldo (fallback), insertarlo como inactivo (is_active=False)
-                    # para preservar el run activo seleccionado en base de datos y evitar reactivaciones obsoletas (Qodo Issue 1).
+
+                    # Serializar la recuperación contra otras transiciones de modelo activo en BD
+                    if db.bind.dialect.name == "postgresql":
+                        db.execute(text("SELECT pg_advisory_xact_lock(742198)"))
+
                     is_active_for_recovery = False
                     if not self.is_fallback:
                         active_exists = db.query(ModelRun).filter(ModelRun.is_active == True).first()
                         if not active_exists or active_exists.model_version == self.model_version:
                             is_active_for_recovery = True
 
-                    new_run = ModelRun(
-                        model_version=self.model_version,
-                        model_name=self.metadata.get("model_name", "HistGradientBoostingClassifier"),
-                        threshold=self.threshold,
-                        metrics=normalized_metrics,
-                        parameters=self.metadata.get("parameters", {}),
-                        is_active=is_active_for_recovery,
-                    )
-                    db.add(new_run)
-                    db.commit()
+                    try:
+                        with db.begin_nested():
+                            new_run = ModelRun(
+                                model_version=self.model_version,
+                                model_name=self.metadata.get("model_name", "HistGradientBoostingClassifier"),
+                                threshold=self.threshold,
+                                metrics=normalized_metrics,
+                                parameters=self.metadata.get("parameters", {}),
+                                is_active=is_active_for_recovery,
+                            )
+                            db.add(new_run)
+                            db.flush()
+                        db.commit()
+                    except IntegrityError:
+                        db.rollback()
+                        logger.warning(
+                            f"Conflicto de modelo activo único al registrar '{self.model_version}'. "
+                            "Reintentando registro como inactivo para preservar el modelo activo vigente..."
+                        )
+                        run_after_rollback = db.query(ModelRun).filter(ModelRun.model_version == self.model_version).first()
+                        if not run_after_rollback:
+                            fallback_run = ModelRun(
+                                model_version=self.model_version,
+                                model_name=self.metadata.get("model_name", "HistGradientBoostingClassifier"),
+                                threshold=self.threshold,
+                                metrics=normalized_metrics,
+                                parameters=self.metadata.get("parameters", {}),
+                                is_active=False,
+                            )
+                            db.add(fallback_run)
+                            db.commit()
             except Exception as auto_rec_err:
                 db.rollback()
                 logger.warning(f"Aviso en verificación/auto-recuperación de ModelRun: {auto_rec_err}")

@@ -22,6 +22,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sqlalchemy import text
 from app.config import settings
 from app.database.connection import SessionLocal
 from app.database.models import ModelRun, TrainingDataset
@@ -210,6 +211,10 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
     # Si falla la base de datos, NO se despliega el modelo y se revierte el staging
     try:
         with SessionLocal() as db_session:
+            # Coordinar con lock a nivel de base de datos para serializar transiciones de modelo activo (Qodo Finding 1)
+            if db_session.bind.dialect.name == "postgresql":
+                db_session.execute(text("SELECT pg_advisory_xact_lock(742198)"))
+
             # Desactivar modelos anteriores
             db_session.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
             new_run = ModelRun(

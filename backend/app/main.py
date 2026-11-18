@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from sqlalchemy import text
 from app.config import settings
 from app.database.connection import Base, engine, SessionLocal
 from app.database.models import ModelRun
@@ -123,15 +124,18 @@ async def lifespan(app: FastAPI):
             )
             try:
                 with SessionLocal() as db:
-                    # Verificar si la versión activa en BD cambió concurrentemente mientras se cargaba el modelo (Finding Qodo)
+                    # Coordinar con lock a nivel de base de datos para serializar transiciones de modelo activo (Qodo Finding 1)
+                    if db.bind.dialect.name == "postgresql":
+                        db.execute(text("SELECT pg_advisory_xact_lock(742198)"))
+
+                    # Re-verificar la versión activa bajo esta coordinación
                     current_active = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
                     current_active_version = current_active.model_version if current_active else None
 
-                    if current_active_version != active_db_version:
+                    if current_active_version is not None and current_active_version != ml_service.model_version:
                         logger.info(
-                            f"Detectado cambio concurrente en la versión activa de base de datos "
-                            f"(inicial: {active_db_version} -> actual: {current_active_version}). "
-                            "Intentando recargar la versión más reciente..."
+                            f"Detectada versión activa más reciente en base de datos: '{current_active_version}' "
+                            f"(versión cargada: '{ml_service.model_version}'). Intentando recargar..."
                         )
                         active_db_version = current_active_version
                         ml_service.load_active_model(target_version=active_db_version, raise_on_missing=False)
@@ -150,9 +154,9 @@ async def lifespan(app: FastAPI):
                     if ml_service.is_fallback:
                         # Modo degradado: NO sobrescribir ni desactivar el run activo en DB (Finding: Restarts can permanently roll back a model)
                         logger.warning(
-                            f"Estado degradado: La versión activa en base de datos '{active_db_version}' no está disponible "
+                            f"Estado degradado: La versión activa en base de datos '{current_active_version}' no está disponible "
                             f"en el sistema de archivos local. Sirviendo temporalmente la versión de respaldo '{ml_service.model_version}' "
-                            f"sin desactivar '{active_db_version}' en la base de datos."
+                            f"sin desactivar '{current_active_version}' en la base de datos."
                         )
                         fallback_run = db.query(ModelRun).filter(ModelRun.model_version == ml_service.model_version).first()
                         if not fallback_run:
@@ -167,11 +171,11 @@ async def lifespan(app: FastAPI):
                             db.add(run_entry)
                             db.commit()
                     else:
-                        # Asegurar atómicamente que el run activo en DB sigue siendo active_db_version antes de activar
-                        latest_active = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
-                        latest_active_version = latest_active.model_version if latest_active else None
+                        # Re-verificar bajo lock que no exista un run activo más reciente antes de activar
+                        active_under_lock = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
+                        active_version_under_lock = active_under_lock.model_version if active_under_lock else None
 
-                        if latest_active_version == active_db_version or latest_active is None:
+                        if active_version_under_lock is None or active_version_under_lock == ml_service.model_version:
                             db.query(ModelRun).filter(
                                 ModelRun.is_active == True,
                                 ModelRun.model_version != ml_service.model_version
@@ -194,10 +198,10 @@ async def lifespan(app: FastAPI):
                             db.commit()
                             logger.info(f"Versión de modelo '{ml_service.model_version}' verificada y activa en base de datos.")
                         else:
-                            # Cambio concurrente durante la activación: entrar en modo degradado sin sobrescribir DB
+                            # Se detectó un modelo activo más nuevo en BD que no pudimos cargar o que cambió
                             logger.warning(
-                                f"La versión activa cambió concurrentemente a '{latest_active_version}' "
-                                f"durante la activación. Entrando en modo degradado sin sobrescribir."
+                                f"Existe un modelo activo más nuevo en BD ('{active_version_under_lock}'). "
+                                f"Preservándolo y entrando en modo degradado sin sobrescribir."
                             )
                             ml_service.is_fallback = True
             except Exception as db_err:

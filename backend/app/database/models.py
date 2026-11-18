@@ -6,9 +6,11 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
@@ -30,6 +32,16 @@ class ModelRun(Base):
     parameters = Column(JsonType, nullable=False, default=dict)
     is_active = Column(Boolean, default=False, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        Index(
+            "uq_model_runs_single_active",
+            "is_active",
+            unique=True,
+            postgresql_where=text("is_active = true"),
+            sqlite_where=text("is_active = 1"),
+        ),
+    )
 
 
 class Prediction(Base):

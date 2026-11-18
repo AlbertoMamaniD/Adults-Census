@@ -10,6 +10,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from app.config import settings
 from app.main import app, lifespan
 from app.services.ml_service import ml_service
@@ -429,6 +431,8 @@ class TestRobustBackendAPI(unittest.TestCase):
             # Limpiar previos si existieran respetando restricciones de integridad referencial
             db.query(Prediction).filter(Prediction.model_version.in_([test_fallback_version, test_active_version])).delete()
             db.query(ModelRun).filter(ModelRun.model_version.in_([test_fallback_version, test_active_version])).delete()
+            # Desactivar temporalmente el modelo activo real para respetar el índice de unicidad parcial
+            db.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
             # Crear un run activo existente en DB
             active_run = ModelRun(
                 model_version=test_active_version,
@@ -478,6 +482,9 @@ class TestRobustBackendAPI(unittest.TestCase):
             with SessionLocal() as db:
                 db.query(Prediction).filter(Prediction.model_version.in_([test_fallback_version, test_active_version])).delete()
                 db.query(ModelRun).filter(ModelRun.model_version.in_([test_fallback_version, test_active_version])).delete()
+                current_real = db.query(ModelRun).order_by(ModelRun.id.desc()).first()
+                if current_real:
+                    current_real.is_active = True
                 db.commit()
 
     def test_21_startup_reconciliation_handles_concurrent_version_change(self):
@@ -529,6 +536,57 @@ class TestRobustBackendAPI(unittest.TestCase):
                     current_real.is_active = True
                 db.commit()
             ml_service.load_active_model(raise_on_missing=False)
+
+    def test_22_concurrent_active_unique_constraint_enforced(self):
+        """Verifica que el índice único parcial impida tener más de un modelo activo en base de datos."""
+        v_test_a = "v_test_unique_active_a"
+        v_test_b = "v_test_unique_active_b"
+
+        with SessionLocal() as db:
+            db.query(ModelRun).filter(ModelRun.model_version.in_([v_test_a, v_test_b])).delete()
+            # Desactivar temporalmente cualquier activo
+            db.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
+            run_a = ModelRun(
+                model_version=v_test_a,
+                model_name="HistGradientBoostingClassifier",
+                threshold=0.77,
+                metrics={"mcc": 0.60, "confusion_matrix": {"tn": 1, "fp": 0, "fn": 0, "tp": 1}},
+                is_active=True,
+            )
+            db.add(run_a)
+            db.commit()
+
+            # Intentar insertar un segundo modelo con is_active=True debe disparar IntegrityError
+            run_b = ModelRun(
+                model_version=v_test_b,
+                model_name="HistGradientBoostingClassifier",
+                threshold=0.77,
+                metrics={"mcc": 0.60, "confusion_matrix": {"tn": 1, "fp": 0, "fn": 0, "tp": 1}},
+                is_active=True,
+            )
+            db.add(run_b)
+            with self.assertRaises(IntegrityError):
+                db.commit()
+            db.rollback()
+
+            # Pero insertarlo como inactivo sí está permitido
+            run_b_inactive = ModelRun(
+                model_version=v_test_b,
+                model_name="HistGradientBoostingClassifier",
+                threshold=0.77,
+                metrics={"mcc": 0.60, "confusion_matrix": {"tn": 1, "fp": 0, "fn": 0, "tp": 1}},
+                is_active=False,
+            )
+            db.add(run_b_inactive)
+            db.commit()
+
+            # Limpiar
+            db.query(ModelRun).filter(ModelRun.model_version.in_([v_test_a, v_test_b])).delete()
+            # Restaurar el modelo real más reciente como activo
+            current_real = db.query(ModelRun).order_by(ModelRun.id.desc()).first()
+            if current_real:
+                current_real.is_active = True
+            db.commit()
 
 
 if __name__ == "__main__":
