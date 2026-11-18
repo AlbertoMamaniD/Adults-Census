@@ -104,11 +104,28 @@ async def lifespan(app: FastAPI):
 
     # 2. Precargar modelo en memoria y asegurar coherencia referencial en base de datos
     try:
-        ml_service.load_active_model(raise_on_missing=False)
+        active_db_version = None
+        try:
+            with SessionLocal() as db_probe:
+                active_db_run = db_probe.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
+                if active_db_run:
+                    active_db_version = active_db_run.model_version
+        except Exception as db_probe_err:
+            logger.warning(f"Aviso al consultar versión activa en base de datos: {db_probe_err}")
+
+        # Intentar cargar la versión activa en DB si está presente en disco, o el manifiesto inmutable
+        ml_service.load_active_model(target_version=active_db_version, raise_on_missing=False)
+
         if ml_service.model is not None:
             logger.info(f"Modelo cargado: {ml_service.model_version} (Umbral: {ml_service.threshold})")
             try:
                 with SessionLocal() as db:
+                    # Desactivar cualquier otro modelo activo en DB para evitar discordancia con la versión en ejecución (Qodo redeploy reconciliation)
+                    db.query(ModelRun).filter(
+                        ModelRun.is_active == True,
+                        ModelRun.model_version != ml_service.model_version
+                    ).update({"is_active": False})
+
                     existing_run = db.query(ModelRun).filter(ModelRun.model_version == ml_service.model_version).first()
                     if not existing_run:
                         logger.info(f"Registrando versión de artefacto activo '{ml_service.model_version}' en tabla model_runs...")
@@ -131,8 +148,11 @@ async def lifespan(app: FastAPI):
                             is_active=True,
                         )
                         db.add(run_entry)
-                        db.commit()
-                        logger.info(f"Versión de modelo '{ml_service.model_version}' vinculada activamente en base de datos.")
+                    else:
+                        existing_run.is_active = True
+
+                    db.commit()
+                    logger.info(f"Versión de modelo '{ml_service.model_version}' vinculada activamente en base de datos.")
             except Exception as db_err:
                 logger.warning(f"Aviso de sincronización de model_runs en arranque: {db_err}")
     except Exception as e:

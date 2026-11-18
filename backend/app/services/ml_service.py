@@ -24,13 +24,23 @@ class MLService:
         self.threshold: float = 0.77
         self.load_active_model(raise_on_missing=False)
 
-    def load_active_model(self, raise_on_missing: bool = False) -> None:
-        """Carga en memoria el artefacto binario y los metadatos desde el par atómico inmutable (Finding 3)."""
+    def load_active_model(self, target_version: Optional[str] = None, raise_on_missing: bool = False) -> None:
+        """Carga en memoria el artefacto binario y los metadatos desde el par atómico inmutable o versión objetivo."""
         active_version_file = settings.ARTIFACTS_DIR / "active_version.json"
         model_path = None
         metadata_path = None
 
-        if active_version_file.exists():
+        # 1. Si se solicita una versión objetivo (ej. activa en DB), verificar si existe físicamente en disco
+        if target_version:
+            m_cand = settings.ARTIFACTS_DIR / f"model_{target_version}.joblib"
+            meta_cand = settings.ARTIFACTS_DIR / f"metadata_{target_version}.json"
+            if m_cand.exists() and meta_cand.exists():
+                model_path = m_cand
+                metadata_path = meta_cand
+                logger.info(f"Cargando versión activa objetivo desde disco: {target_version}")
+
+        # 2. Si no, consultar el manifiesto atómico active_version.json
+        if model_path is None and active_version_file.exists():
             try:
                 with open(active_version_file, "r", encoding="utf-8") as f:
                     v_data = json.load(f)

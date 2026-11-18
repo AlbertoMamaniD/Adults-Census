@@ -28,8 +28,13 @@ router = APIRouter(prefix="", tags=["Métricas y MLOps"])
     },
 )
 def get_model_metrics(db: Session = Depends(get_db)):
-    # Intentar obtener de la base de datos primero si hay un run activo registrado
-    active_run = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
+    # 1. Priorizar en base de datos la versión exacta que está sirviendo inferencias activas (Qodo redeploy reconciliation)
+    active_run = db.query(ModelRun).filter(ModelRun.model_version == ml_service.model_version).first()
+    if not active_run:
+        active_run = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
+        # Si la base de datos apunta a otra versión no presente en memoria, descartar para evitar discordancia
+        if active_run and active_run.model_version != ml_service.model_version:
+            active_run = None
     
     if active_run:
         metrics_dict = active_run.metrics
