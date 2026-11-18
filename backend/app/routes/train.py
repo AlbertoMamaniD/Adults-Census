@@ -2,6 +2,7 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
+import uuid
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -51,7 +52,9 @@ async def upload_training_dataset(
 
     data_dir = settings.DATA_DIR
     data_dir.mkdir(parents=True, exist_ok=True)
-    destination_path = data_dir / f"uploaded_{file.filename}"
+    safe_basename = Path(file.filename).name.replace(" ", "_")
+    storage_filename = f"upload_{uuid.uuid4().hex[:12]}_{safe_basename}"
+    destination_path = data_dir / storage_filename
 
     # Lectura en chunks delimitados para proteger memoria RAM (Finding 11)
     file_size = 0
@@ -156,13 +159,13 @@ async def upload_training_dataset(
 
     row_count = len(df)
 
-    # Registrar en base de datos
+    # Registrar en base de datos con nombre de almacenamiento único (Finding 2)
     db_record = TrainingDataset(
         filename=file.filename,
         row_count=row_count,
         file_size_bytes=file_size,
         status="uploaded",
-        notes=f"Subido vía REST API. Filas válidas: {row_count}.",
+        notes=storage_filename,
     )
     db.add(db_record)
     db.commit()
@@ -209,6 +212,17 @@ async def trigger_retrain(
     selected_dataset_id: Optional[int] = None
     target_csv_path: Optional[Path] = None
 
+    def _resolve_dataset_path(record: TrainingDataset) -> Optional[Path]:
+        if record.notes:
+            cand = settings.DATA_DIR / record.notes
+            if cand.exists():
+                return cand
+        for legacy_name in [f"uploaded_{record.filename}", record.filename]:
+            cand = settings.DATA_DIR / legacy_name
+            if cand.exists():
+                return cand
+        return None
+
     if payload and payload.dataset_id is not None:
         dataset_rec = db.query(TrainingDataset).filter(TrainingDataset.id == payload.dataset_id).first()
         if not dataset_rec:
@@ -216,11 +230,11 @@ async def trigger_retrain(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Dataset con ID {payload.dataset_id} no encontrado en la base de datos.",
             )
-        candidate_path = settings.DATA_DIR / f"uploaded_{dataset_rec.filename}"
-        if not candidate_path.exists():
+        candidate_path = _resolve_dataset_path(dataset_rec)
+        if not candidate_path or not candidate_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"El archivo físico asociado al dataset no se encontró en {candidate_path}.",
+                detail=f"El archivo físico asociado al dataset no se encontró en el servidor.",
             )
         selected_dataset_id = dataset_rec.id
         target_csv_path = candidate_path
@@ -233,8 +247,8 @@ async def trigger_retrain(
             .first()
         )
         if latest_uploaded:
-            cand_path = settings.DATA_DIR / f"uploaded_{latest_uploaded.filename}"
-            if cand_path.exists():
+            cand_path = _resolve_dataset_path(latest_uploaded)
+            if cand_path and cand_path.exists():
                 selected_dataset_id = latest_uploaded.id
                 target_csv_path = cand_path
 

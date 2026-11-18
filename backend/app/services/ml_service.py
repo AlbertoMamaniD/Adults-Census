@@ -8,7 +8,7 @@ import joblib
 import pandas as pd
 from sqlalchemy.orm import Session
 from app.config import settings
-from app.database.models import Prediction
+from app.database.models import ModelRun, Prediction
 from app.schemas.prediction import PredictionInput, PredictionResponse
 
 logger = logging.getLogger("ml_service")
@@ -25,9 +25,28 @@ class MLService:
         self.load_active_model(raise_on_missing=False)
 
     def load_active_model(self, raise_on_missing: bool = False) -> None:
-        """Carga en memoria el artefacto binario y los metadatos más recientes."""
-        model_path = settings.ARTIFACTS_DIR / "model_latest.joblib"
-        metadata_path = settings.ARTIFACTS_DIR / "metadata_latest.json"
+        """Carga en memoria el artefacto binario y los metadatos desde el par atómico inmutable (Finding 3)."""
+        active_version_file = settings.ARTIFACTS_DIR / "active_version.json"
+        model_path = None
+        metadata_path = None
+
+        if active_version_file.exists():
+            try:
+                with open(active_version_file, "r", encoding="utf-8") as f:
+                    v_data = json.load(f)
+                v = v_data.get("model_version")
+                m_cand = settings.ARTIFACTS_DIR / v_data.get("model_file", f"model_{v}.joblib")
+                meta_cand = settings.ARTIFACTS_DIR / v_data.get("metadata_file", f"metadata_{v}.json")
+                if m_cand.exists() and meta_cand.exists():
+                    model_path = m_cand
+                    metadata_path = meta_cand
+                    logger.info(f"Cargando versión activa atómica: {v}")
+            except Exception as err:
+                logger.warning(f"Aviso al consultar active_version.json: {err}")
+
+        if model_path is None or metadata_path is None:
+            model_path = settings.ARTIFACTS_DIR / "model_latest.joblib"
+            metadata_path = settings.ARTIFACTS_DIR / "metadata_latest.json"
 
         if not model_path.exists():
             logger.warning(f"Artefacto de modelo no encontrado en: {model_path}. Servicio en espera de inicialización o reentrenamiento.")
@@ -84,6 +103,36 @@ class MLService:
         # Persistir auditoría en base de datos si la sesión está disponible
         prediction_id = None
         if db is not None:
+            # 1. Asegurar registro de ModelRun ante recuperación post-caída de BD (Finding 4)
+            try:
+                run_exists = db.query(ModelRun).filter(ModelRun.model_version == self.model_version).first()
+                if not run_exists:
+                    logger.info(f"Auto-recuperando registro de model_version '{self.model_version}' en base de datos...")
+                    raw_m = self.metadata.get("metrics", {})
+                    cm = raw_m.get("confusion_matrix", {})
+                    tn = cm.get("tn") if "tn" in cm else raw_m.get("true_negatives", 0)
+                    fp = cm.get("fp") if "fp" in cm else raw_m.get("false_positives", 0)
+                    fn = cm.get("fn") if "fn" in cm else raw_m.get("false_negatives", 0)
+                    tp = cm.get("tp") if "tp" in cm else raw_m.get("true_positives", 0)
+                    normalized_metrics = {
+                        **raw_m,
+                        "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
+                    }
+                    new_run = ModelRun(
+                        model_version=self.model_version,
+                        model_name=self.metadata.get("model_name", "Gradient boosting"),
+                        threshold=self.threshold,
+                        metrics=normalized_metrics,
+                        parameters=self.metadata.get("parameters", {}),
+                        is_active=True,
+                    )
+                    db.add(new_run)
+                    db.commit()
+            except Exception as auto_rec_err:
+                db.rollback()
+                logger.warning(f"Aviso en verificación/auto-recuperación de ModelRun: {auto_rec_err}")
+
+            # 2. Persistir predicción
             try:
                 db_record = Prediction(
                     model_version=self.model_version,

@@ -112,11 +112,21 @@ async def lifespan(app: FastAPI):
                     existing_run = db.query(ModelRun).filter(ModelRun.model_version == ml_service.model_version).first()
                     if not existing_run:
                         logger.info(f"Registrando versión de artefacto activo '{ml_service.model_version}' en tabla model_runs...")
+                        raw_m = ml_service.metadata.get("metrics", {})
+                        cm = raw_m.get("confusion_matrix", {})
+                        tn = cm.get("tn") if "tn" in cm else raw_m.get("true_negatives", 0)
+                        fp = cm.get("fp") if "fp" in cm else raw_m.get("false_positives", 0)
+                        fn = cm.get("fn") if "fn" in cm else raw_m.get("false_negatives", 0)
+                        tp = cm.get("tp") if "tp" in cm else raw_m.get("true_positives", 0)
+                        normalized_metrics = {
+                            **raw_m,
+                            "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
+                        }
                         run_entry = ModelRun(
                             model_version=ml_service.model_version,
                             model_name=ml_service.metadata.get("model_name", "HistGradientBoostingClassifier"),
                             threshold=ml_service.threshold,
-                            metrics=ml_service.metadata.get("metrics", {}),
+                            metrics=normalized_metrics,
                             parameters=ml_service.metadata.get("parameters", {}),
                             is_active=True,
                         )

@@ -34,6 +34,10 @@ def get_model_metrics(db: Session = Depends(get_db)):
     if active_run:
         metrics_dict = active_run.metrics
         cm_data = metrics_dict.get("confusion_matrix", {})
+        tn = cm_data.get("tn") if "tn" in cm_data else metrics_dict.get("true_negatives", 0)
+        fp = cm_data.get("fp") if "fp" in cm_data else metrics_dict.get("false_positives", 0)
+        fn = cm_data.get("fn") if "fn" in cm_data else metrics_dict.get("false_negatives", 0)
+        tp = cm_data.get("tp") if "tp" in cm_data else metrics_dict.get("true_positives", 0)
         return ModelMetricsResponse(
             model_version=active_run.model_version,
             model_name=active_run.model_name,
@@ -47,10 +51,10 @@ def get_model_metrics(db: Session = Depends(get_db)):
                 accuracy=round(float(metrics_dict.get("accuracy", 0.0)), 4),
                 f1=round(float(metrics_dict.get("f1", 0.0)), 4) if "f1" in metrics_dict else None,
                 confusion_matrix=ConfusionMatrix(
-                    tn=int(cm_data.get("tn", 0)),
-                    fp=int(cm_data.get("fp", 0)),
-                    fn=int(cm_data.get("fn", 0)),
-                    tp=int(cm_data.get("tp", 0)),
+                    tn=int(tn),
+                    fp=int(fp),
+                    fn=int(fn),
+                    tp=int(tp),
                 ),
                 expected_cost=metrics_dict.get("expected_cost"),
             ),

@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 import json
 import logging
+import os
 from pathlib import Path
 import shutil
 from typing import Any, Dict, Optional
@@ -235,11 +236,27 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
             versioned_meta_path.unlink()
         raise RuntimeError(f"Fallo al registrar model_run en base de datos: {db_err}")
 
-    # 7. Promover a artefactos de producción y recargar singleton SOLO tras éxito en DB
+    # 7. Promover a producción mediante referencia atómica inmutable (Finding 3)
+    active_manifest = {
+        "model_version": new_version,
+        "model_file": f"model_{new_version}.joblib",
+        "metadata_file": f"metadata_{new_version}.json",
+        "threshold": robust_threshold,
+        "published_at": datetime.now(timezone.utc).isoformat(),
+    }
+    tmp_manifest_path = artifacts_dir / f"active_version_{new_version}.tmp"
+    with open(tmp_manifest_path, "w", encoding="utf-8") as f:
+        json.dump(active_manifest, f, indent=2)
+
+    active_version_path = artifacts_dir / "active_version.json"
+    os.replace(tmp_manifest_path, active_version_path)
+
+    # Copias secundarias para compatibilidad
     shutil.copyfile(versioned_model_path, latest_model_path)
     shutil.copyfile(versioned_meta_path, latest_meta_path)
+
     ml_service.load_active_model()
-    logger.info(f"Artefactos promovidos a latest y singleton recargado con version {new_version}.")
+    logger.info(f"Artefactos promovidos atómicamente y singleton recargado con versión {new_version}.")
 
     return {
         "new_model_version": new_version,

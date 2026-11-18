@@ -14,18 +14,31 @@ class WebSocketManager:
 
     def __init__(self) -> None:
         self.active_connections: Set[WebSocket] = set()
+        self._pending_handshakes: int = 0
+        self._lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket) -> bool:
-        """Acepta la conexión si no se supera el límite global."""
-        if len(self.active_connections) >= self.MAX_CONNECTIONS:
-            logger.warning(f"Límite de conexiones WebSocket alcanzado ({self.MAX_CONNECTIONS}). Rechazando conexión.")
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Límite máximo de conexiones simultáneas alcanzado.")
-            return False
+        """Acepta la conexión reservando atómicamente un slot para evitar desbordes concurrentes."""
+        async with self._lock:
+            if len(self.active_connections) + self._pending_handshakes >= self.MAX_CONNECTIONS:
+                logger.warning(f"Límite de conexiones WebSocket alcanzado ({self.MAX_CONNECTIONS}). Rechazando conexión.")
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Límite máximo de conexiones simultáneas alcanzado.")
+                return False
+            self._pending_handshakes += 1
 
-        await websocket.accept()
-        self.active_connections.add(websocket)
-        logger.info(f"Cliente WebSocket conectado. Conexiones activas: {len(self.active_connections)}")
-        return True
+        try:
+            await websocket.accept()
+            async with self._lock:
+                self.active_connections.add(websocket)
+            logger.info(f"Cliente WebSocket conectado. Conexiones activas: {len(self.active_connections)}")
+            return True
+        except Exception as e:
+            logger.warning(f"Error durante handshake de WebSocket: {e}")
+            return False
+        finally:
+            async with self._lock:
+                if self._pending_handshakes > 0:
+                    self._pending_handshakes -= 1
 
     def disconnect(self, websocket: WebSocket) -> None:
         self.active_connections.discard(websocket)
