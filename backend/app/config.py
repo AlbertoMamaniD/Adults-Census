@@ -1,9 +1,11 @@
 import os
 from pathlib import Path
 import secrets
+from dotenv import load_dotenv
 
-# Determinar raiz del proyecto buscando .env o artifacts
+# Determinar raiz del proyecto y cargar variables de entorno desde .env
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 
 class Settings:
@@ -17,7 +19,11 @@ class Settings:
     DATA_DIR: Path = BASE_DIR / "data"
     
     # Seguridad JWT: clave criptográfica leída del entorno o generada efímeramente para desarrollo
-    SECRET_KEY: str = os.environ.get("JWT_SECRET_KEY") or secrets.token_urlsafe(32)
+    SECRET_KEY: str = (
+        os.environ.get("JWT_SECRET_KEY")
+        or os.environ.get("SECRET_KEY")
+        or secrets.token_urlsafe(32)
+    )
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 horas
     
@@ -29,13 +35,6 @@ class Settings:
     @property
     def DATABASE_URL(self) -> str:
         url = os.environ.get("SUPABASE_DB_URL", "").strip()
-        if not url:
-            env_file = self.REPO_ROOT / ".env"
-            if env_file.exists():
-                for line in env_file.read_text(encoding="utf-8").splitlines():
-                    if line.strip().startswith("SUPABASE_DB_URL="):
-                        url = line.split("=", 1)[1].strip('"\' ')
-                        break
         if url:
             if url.startswith("postgres://"):
                 url = url.replace("postgres://", "postgresql+psycopg2://", 1)

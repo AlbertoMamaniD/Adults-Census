@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
+import shutil
 from typing import Any, Dict, Optional
 import joblib
 import numpy as np
@@ -20,13 +21,18 @@ from sklearn.metrics import (
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sqlalchemy.orm import Session
 from app.config import settings
-from app.database.models import ModelRun
+from app.database.connection import SessionLocal
+from app.database.models import ModelRun, TrainingDataset
 from app.services.ml_service import ml_service
 from app.services.websocket_manager import ws_manager
 
 logger = logging.getLogger("retrain_service")
+
+
+def normalize_column_name(col: str) -> str:
+    """Normaliza nombres de columnas censales admitiendo guiones y puntos (Finding 2)."""
+    return col.strip().lower().replace("-", "_").replace(".", "_")
 
 
 async def emit_progress(stage: str, progress: int, message: str, payload: Optional[Dict[str, Any]] = None):
@@ -42,8 +48,11 @@ async def emit_progress(stage: str, progress: int, message: str, payload: Option
     await ws_manager.broadcast(event)
 
 
-def run_retrain_pipeline(csv_path: Optional[Path] = None, db: Optional[Session] = None) -> Dict[str, Any]:
-    """Ejecuta el pipeline de reentrenamiento CRISP-ML(Q) de forma síncrona/hilo."""
+def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Ejecuta el pipeline de reentrenamiento CRISP-ML(Q) de forma síncrona en un hilo de trabajo aislado (Finding 5).
+    Usa sesión propia de base de datos y garantiza activación atómica sólo tras registro exitoso en DB (Finding 4).
+    """
     if csv_path is None or not csv_path.exists():
         csv_path = settings.DATA_DIR / "adult.csv"
         if not csv_path.exists():
@@ -52,19 +61,26 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, db: Optional[Session] 
     # 1. Ingesta y Limpieza
     logger.info(f"Leyendo dataset desde {csv_path}...")
     df = pd.read_csv(csv_path)
-    df.columns = [c.strip().replace("-", "_") for c in df.columns]
+    df.columns = [normalize_column_name(c) for c in df.columns]
 
-    # Target column
+    # Target column (Finding 7)
     target_col = None
     for candidate in ["income", "class", "target"]:
         if candidate in df.columns:
             target_col = candidate
             break
     if not target_col:
-        raise ValueError("Columna objetivo ('income') no encontrada en el dataset.")
+        raise ValueError("Columna objetivo ('income') no encontrada en el dataset de entrenamiento.")
 
-    # Mapeo binario
+    # Mapeo binario y validación de clases (Finding 7)
     df[target_col] = df[target_col].astype(str).str.strip().str.rstrip(".")
+    classes_present = set(df[target_col].unique())
+    if not {">50K", "<=50K"}.issubset(classes_present):
+        raise ValueError(f"El dataset debe contener ambas clases ('>50K' y '<=50K'). Encontradas: {classes_present}")
+    counts = df[target_col].value_counts()
+    if counts.get(">50K", 0) < 5 or counts.get("<=50K", 0) < 5:
+        raise ValueError("Cada clase en el dataset debe contener al menos 5 ejemplos representativos para validación estratificada.")
+
     y = (df[target_col] == ">50K").astype(int)
     X = df.drop(columns=[target_col])
 
@@ -141,18 +157,17 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, db: Optional[Session] 
     acc_val = float(accuracy_score(y_test, y_final))
     roc_val = float(roc_auc_score(y_test, y_proba))
 
-    # 5. Serialización y Versión Inmutable
+    # 5. Serialización en staging (Finding 4)
     new_version = f"v{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
     artifacts_dir = settings.ARTIFACTS_DIR
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     versioned_model_path = artifacts_dir / f"model_{new_version}.joblib"
-    latest_model_path = artifacts_dir / "model_latest.joblib"
     versioned_meta_path = artifacts_dir / f"metadata_{new_version}.json"
+    latest_model_path = artifacts_dir / "model_latest.joblib"
     latest_meta_path = artifacts_dir / "metadata_latest.json"
 
     joblib.dump(model_pipeline, versioned_model_path)
-    joblib.dump(model_pipeline, latest_model_path)
 
     metrics_payload = {
         "threshold": robust_threshold,
@@ -189,14 +204,13 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, db: Optional[Session] 
 
     with open(versioned_meta_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
-    with open(latest_meta_path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
 
-    # 6. Registrar en Base de Datos
-    if db is not None:
-        try:
+    # 6. Registrar en Base de Datos de manera transaccional e inmutable (Finding 4 y Finding 9)
+    # Si falla la base de datos, NO se despliega el modelo y se revierte el staging
+    try:
+        with SessionLocal() as db_session:
             # Desactivar modelos anteriores
-            db.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
+            db_session.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
             new_run = ModelRun(
                 model_version=new_version,
                 model_name=metadata["model_name"],
@@ -205,15 +219,27 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, db: Optional[Session] 
                 parameters=metadata["parameters"],
                 is_active=True,
             )
-            db.add(new_run)
-            db.commit()
-            logger.info(f"Nuevo modelo registrado activamente en DB: {new_version}")
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Error al registrar model_run en DB: {e}")
+            db_session.add(new_run)
+            if dataset_id is not None:
+                dataset_record = db_session.query(TrainingDataset).filter(TrainingDataset.id == dataset_id).first()
+                if dataset_record:
+                    dataset_record.status = "processed"
+            db_session.commit()
+            logger.info(f"Nuevo modelo registrado y activado exitosamente en base de datos: {new_version}")
+    except Exception as db_err:
+        logger.error(f"Error crítico en base de datos al registrar version {new_version}: {db_err}")
+        # Descartar artefactos staged para no dejar archivos huerfanos ni activar modelo invalido
+        if versioned_model_path.exists():
+            versioned_model_path.unlink()
+        if versioned_meta_path.exists():
+            versioned_meta_path.unlink()
+        raise RuntimeError(f"Fallo al registrar model_run en base de datos: {db_err}")
 
-    # Recargar singleton en memoria
+    # 7. Promover a artefactos de producción y recargar singleton SOLO tras éxito en DB
+    shutil.copyfile(versioned_model_path, latest_model_path)
+    shutil.copyfile(versioned_meta_path, latest_meta_path)
     ml_service.load_active_model()
+    logger.info(f"Artefactos promovidos a latest y singleton recargado con version {new_version}.")
 
     return {
         "new_model_version": new_version,

@@ -31,8 +31,9 @@ Este directorio contiene los conjuntos de datos utilizados para el entrenamiento
 
 ## 3. Requisitos para Archivos de Re-entrenamiento
 
-Cuando se utilice el endpoint de subida de datos de entrenamiento (`POST /api/v1/train/upload`) desde la interfaz gráfica:
-1. El archivo debe estar en formato **CSV** delimitado por comas.
-2. Debe contener las mismas cabeceras descritas en la tabla anterior.
+Cuando se utilice el endpoint de subida de datos de entrenamiento (`POST /api/v1/train/upload`) desde la interfaz gráfica o vía API REST:
+1. El archivo debe estar en formato **CSV** delimitado por comas (tamaño máximo: 50 MB).
+2. Admite indistintamente formatos de cabecera con punto oficial de Kaggle (ej. `education.num`, `marital.status`, `hours.per.week`, `capital.gain`, `capital.loss`, `native.country`), con guion (ej. `education-num`) o con guion bajo (`education_num`), normalizándose de forma unificada y transparente.
 3. Los valores nulos o desconocidos pueden representarse con `?` o vacíos (el pipeline de preprocesamiento se encarga de su imputación adecuada).
-4. La columna objetivo `income` debe estar presente con valores válidos (`<=50K` o `>50K`).
+4. La columna objetivo `income` (o `class` / `target`) debe estar presente con valores válidos (`<=50K` o `>50K`).
+5. Ambas clases (`<=50K` y `>50K`) deben estar presentes con un mínimo de 5 registros cada una para garantizar una partición y validación estratificada matemáticamente rigurosa.

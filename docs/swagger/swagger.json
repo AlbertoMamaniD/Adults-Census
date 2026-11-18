@@ -134,8 +134,8 @@
         "tags": [
           "Historial de Predicciones"
         ],
-        "summary": "Consultar historial de inferencias realizadas",
-        "description": "### Auditoría Transaccional de Decisiones Crediticias\n\nRecupera las predicciones registradas en la base de datos Supabase PostgreSQL en orden cronológico descendente.\n\n**Utilidad:**\n- **Trazabilidad:** Auditar qué recomendación se le otorgó a un solicitante y qué atributos demográficos tenía.\n- **Monitoreo de Drift:** Permite al frontend o a analistas detectar cambios en la distribución de probabilidades.\n- **Paginación Eficiente:** Parámetros `limit` (1 a 200) y `offset` (desplazamiento).",
+        "summary": "Consultar historial de inferencias realizadas (Autenticado)",
+        "description": "### Auditoría Transaccional de Decisiones Crediticias\n\nRecupera las predicciones registradas en la base de datos Supabase PostgreSQL en orden cronológico descendente.\n\n**Seguridad:** Requiere token Bearer JWT de un analista autenticado para salvaguardar la privacidad de datos demográficos.\n\n**Utilidad:**\n- **Trazabilidad:** Auditar qué recomendación se le otorgó a un solicitante y qué atributos demográficos tenía.\n- **Monitoreo de Drift:** Permite al frontend o a analistas detectar cambios en la distribución de probabilidades.\n- **Paginación Eficiente:** Parámetros `limit` (1 a 200) y `offset` (desplazamiento).",
         "operationId": "get_prediction_history_api_v1_history_get",
         "security": [
           {
@@ -186,6 +186,9 @@
               }
             }
           },
+          "401": {
+            "description": "No autorizado. Token Bearer ausente o inválido."
+          },
           "422": {
             "description": "Parámetros de consulta (limit u offset) fuera del rango permitido."
           }
@@ -219,8 +222,8 @@
         "tags": [
           "Entrenamiento y MLOps"
         ],
-        "summary": "Cargar nuevo dataset para reentrenamiento",
-        "description": "Sube un archivo CSV con datos censales, valida columnas obligatorias, comprueba integridad y registra el lote en la base de datos.",
+        "summary": "Cargar nuevo dataset para reentrenamiento (Autenticado)",
+        "description": "Sube un archivo CSV con datos censales en streaming por bloques, valida columnas obligatorias (tolerando nombres con puntos y guiones), verifica la variable objetivo ('income') y el balance de clases, y registra el lote en la base de datos.",
         "operationId": "upload_training_dataset_api_v1_train_upload_post",
         "requestBody": {
           "content": {
@@ -234,7 +237,7 @@
         },
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "Dataset validado y registrado exitosamente.",
             "content": {
               "application/json": {
                 "schema": {
@@ -242,6 +245,15 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Error en formato de archivo, columnas faltantes o datos insuficientes."
+          },
+          "401": {
+            "description": "No autorizado. Token Bearer ausente o inválido."
+          },
+          "413": {
+            "description": "Archivo excede el límite de 50 MB."
           },
           "422": {
             "description": "Validation Error",
@@ -266,16 +278,55 @@
         "tags": [
           "Entrenamiento y MLOps"
         ],
-        "summary": "Ejecutar reentrenamiento completo CRISP-ML(Q)",
-        "description": "Dispara el ciclo completo de preprocesamiento, ajuste del modelo supervisado, optimización de umbral y despliegue del nuevo artefacto.",
+        "summary": "Ejecutar reentrenamiento completo CRISP-ML(Q) (Autenticado)",
+        "description": "Dispara el pipeline asíncrono en un hilo de trabajo dedicado (off-loop) para no bloquear la API REST. Permite seleccionar un dataset específico por ID o utiliza el último dataset subido validado.",
         "operationId": "trigger_retrain_api_v1_retrain_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RetrainRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "Pipeline CRISP-ML(Q) completado y nuevo modelo activado exitosamente.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RetrainResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autorizado. Token Bearer ausente o inválido."
+          },
+          "404": {
+            "description": "Dataset solicitado o archivo base no encontrado."
+          },
+          "409": {
+            "description": "Ya existe un proceso de reentrenamiento activo."
+          },
+          "500": {
+            "description": "Error durante el reentrenamiento."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -759,6 +810,27 @@
           "recommendation"
         ],
         "title": "PredictionResponse"
+      },
+      "RetrainRequest": {
+        "properties": {
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id",
+            "description": "ID del dataset registrado en training_datasets a utilizar. Si se omite, se usa el último dataset subido o el dataset base data/adult.csv.",
+            "examples": [
+              1
+            ]
+          }
+        },
+        "type": "object",
+        "title": "RetrainRequest"
       },
       "RetrainResponse": {
         "properties": {

@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.config import settings
-from app.database.connection import Base, engine
+from app.database.connection import Base, engine, SessionLocal
+from app.database.models import ModelRun
 from app.routes import auth, history, metrics, predict, train, websocket
 from app.services.ml_service import ml_service
 
@@ -101,12 +102,31 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Aviso de conexión a base de datos en arranque: {e}")
 
-    # 2. Precargar modelo en memoria
+    # 2. Precargar modelo en memoria y asegurar coherencia referencial en base de datos
     try:
-        ml_service.load_active_model()
-        logger.info(f"Modelo cargado: {ml_service.model_version} (Umbral: {ml_service.threshold})")
+        ml_service.load_active_model(raise_on_missing=False)
+        if ml_service.model is not None:
+            logger.info(f"Modelo cargado: {ml_service.model_version} (Umbral: {ml_service.threshold})")
+            try:
+                with SessionLocal() as db:
+                    existing_run = db.query(ModelRun).filter(ModelRun.model_version == ml_service.model_version).first()
+                    if not existing_run:
+                        logger.info(f"Registrando versión de artefacto activo '{ml_service.model_version}' en tabla model_runs...")
+                        run_entry = ModelRun(
+                            model_version=ml_service.model_version,
+                            model_name=ml_service.metadata.get("model_name", "HistGradientBoostingClassifier"),
+                            threshold=ml_service.threshold,
+                            metrics=ml_service.metadata.get("metrics", {}),
+                            parameters=ml_service.metadata.get("parameters", {}),
+                            is_active=True,
+                        )
+                        db.add(run_entry)
+                        db.commit()
+                        logger.info(f"Versión de modelo '{ml_service.model_version}' vinculada activamente en base de datos.")
+            except Exception as db_err:
+                logger.warning(f"Aviso de sincronización de model_runs en arranque: {db_err}")
     except Exception as e:
-        logger.error(f"Error al cargar el artefacto del modelo: {e}")
+        logger.error(f"Error al inicializar artefacto del modelo: {e}")
 
     yield
 
@@ -167,6 +187,15 @@ async def security_and_latency_middleware(request: Request, call_next):
             )
         recent_requests.append(now)
         _client_request_history[client_ip] = recent_requests
+
+        # Control de memoria del Rate Limiter (Finding 14): purga periódica de IPs inactivas
+        if len(_client_request_history) > 200:
+            stale_ips = [
+                ip for ip, timestamps in list(_client_request_history.items())
+                if not timestamps or (now - timestamps[-1] >= RATE_LIMIT_WINDOW_SECONDS)
+            ]
+            for ip in stale_ips:
+                _client_request_history.pop(ip, None)
 
     # Medición de tiempo de ejecución
     start_time = time.perf_counter()

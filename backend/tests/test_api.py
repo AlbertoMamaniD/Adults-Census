@@ -18,6 +18,17 @@ class TestRobustBackendAPI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(app)
+        # Iniciar sesión para obtener token de autenticación para rutas protegidas
+        login_resp = cls.client.post(
+            "/api/v1/auth/login",
+            json={"username": settings.ADMIN_USERNAME, "password": settings.ADMIN_PASSWORD},
+        )
+        if login_resp.status_code == 200:
+            cls.token = login_resp.json()["access_token"]
+            cls.auth_headers = {"Authorization": f"Bearer {cls.token}"}
+        else:
+            cls.token = ""
+            cls.auth_headers = {}
 
     # =========================================================================
     # 1. PRUEBAS DE SALUD Y ARQUITECTURA
@@ -262,28 +273,42 @@ class TestRobustBackendAPI(unittest.TestCase):
         self.assertGreater(cm["tn"], 0)
 
     # =========================================================================
-    # 6. PRUEBAS DE HISTORIAL Y PAGINACIÓN
+    # 6. PRUEBAS DE HISTORIAL Y PROTECCIÓN DE DATOS (FINDING 3)
     # =========================================================================
-    def test_14_history_pagination_and_ordering(self):
-        """Verifica la consulta con paginación y orden cronológico en Supabase."""
-        response = self.client.get("/api/v1/history?limit=3&offset=0")
+    def test_14_history_unauthenticated_rejected(self):
+        """Rechazo con 401 en /history para peticiones anónimas sin token Bearer."""
+        response = self.client.get("/api/v1/history")
+        self.assertEqual(response.status_code, 401)
+
+    def test_14b_history_authenticated_pagination(self):
+        """Verifica la consulta con paginación y token de autenticación en Supabase."""
+        response = self.client.get("/api/v1/history?limit=3&offset=0", headers=self.auth_headers)
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIsInstance(data, list)
         self.assertLessEqual(len(data), 3)
         if len(data) >= 2:
-            # Comprobar que viene ordenado de más reciente a más antiguo
             self.assertGreaterEqual(data[0]["id"], data[1]["id"])
 
     # =========================================================================
-    # 7. PRUEBAS DE CARGA DE DATASET (UPLOAD) Y VALIDACIÓN DE ARCHIVOS
+    # 7. PRUEBAS DE CARGA DE DATASET, SEGURIDAD Y VALIDACIÓN (FINDINGS 2, 3, 7, 11)
     # =========================================================================
-    def test_15_upload_dataset_reject_non_csv(self):
+    def test_15_upload_dataset_unauthenticated_rejected(self):
+        """Rechazo con 401 en /train/upload si no se proporciona autenticación."""
+        fake_file = io.BytesIO(b"age,income\n30,<=50K")
+        response = self.client.post(
+            "/api/v1/train/upload",
+            files={"file": ("dataset.csv", fake_file, "text/csv")},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_15b_upload_dataset_reject_non_csv(self):
         """Rechazo con 400 si el archivo subido no es CSV."""
         fake_file = io.BytesIO(b"some binary or text content")
         response = self.client.post(
             "/api/v1/train/upload",
             files={"file": ("dataset.txt", fake_file, "text/plain")},
+            headers=self.auth_headers,
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Solo se admiten archivos con extensión .csv", response.json()["detail"])
@@ -294,6 +319,7 @@ class TestRobustBackendAPI(unittest.TestCase):
         response = self.client.post(
             "/api/v1/train/upload",
             files={"file": ("empty.csv", empty_file, "text/csv")},
+            headers=self.auth_headers,
         )
         self.assertEqual(response.status_code, 400)
 
@@ -303,20 +329,38 @@ class TestRobustBackendAPI(unittest.TestCase):
         response = self.client.post(
             "/api/v1/train/upload",
             files={"file": ("invalido.csv", bad_csv, "text/csv")},
+            headers=self.auth_headers,
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("carece de las siguientes columnas requeridas", response.json()["detail"])
 
-    def test_18_upload_dataset_success(self):
-        """Carga y validación exitosa de un mini-dataset válido."""
+    def test_17b_upload_dataset_reject_single_class(self):
+        """Rechazo con 400 si el CSV contiene solo una clase (Finding 7)."""
         csv_header = "age,workclass,education_num,marital_status,occupation,relationship,race,sex,capital_gain,capital_loss,hours_per_week,native_country,income\n"
-        row = "30,Private,10,Never-married,Sales,Not-in-family,White,Male,0,0,40,United-States,<=50K\n"
-        csv_content = (csv_header + row * 12).encode("utf-8")
+        row_single = "30,Private,10,Never-married,Sales,Not-in-family,White,Male,0,0,40,United-States,<=50K\n"
+        csv_content = (csv_header + row_single * 12).encode("utf-8")
+        file_obj = io.BytesIO(csv_content)
+
+        response = self.client.post(
+            "/api/v1/train/upload",
+            files={"file": ("single_class.csv", file_obj, "text/csv")},
+            headers=self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("debe contener ambas clases", response.json()["detail"])
+
+    def test_18_upload_dataset_success(self):
+        """Carga y validación exitosa de un mini-dataset válido con ambas clases (Finding 7)."""
+        csv_header = "age,workclass,education_num,marital_status,occupation,relationship,race,sex,capital_gain,capital_loss,hours_per_week,native_country,income\n"
+        row_low = "30,Private,10,Never-married,Sales,Not-in-family,White,Male,0,0,40,United-States,<=50K\n"
+        row_high = "45,Private,13,Married-civ-spouse,Exec-managerial,Husband,White,Male,5000,0,50,United-States,>50K\n"
+        csv_content = (csv_header + row_low * 6 + row_high * 6).encode("utf-8")
         valid_file = io.BytesIO(csv_content)
 
         response = self.client.post(
             "/api/v1/train/upload",
             files={"file": ("mini_adult_test.csv", valid_file, "text/csv")},
+            headers=self.auth_headers,
         )
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -324,8 +368,31 @@ class TestRobustBackendAPI(unittest.TestCase):
         self.assertEqual(data["rows_ingested"], 12)
         self.assertIn("dataset_id", data)
 
+    def test_18b_upload_dataset_dotted_headers_success(self):
+        """Carga exitosa soportando cabeceras con puntos de Kaggle (Finding 2)."""
+        csv_header = "age,workclass,education.num,marital.status,occupation,relationship,race,sex,capital.gain,capital.loss,hours.per.week,native.country,income\n"
+        row_low = "28,Private,9,Never-married,Handlers-cleaners,Not-in-family,Black,Male,0,0,40,United-States,<=50K\n"
+        row_high = "50,Self-emp-inc,14,Married-civ-spouse,Prof-specialty,Husband,White,Male,10000,0,45,United-States,>50K\n"
+        csv_content = (csv_header + row_low * 6 + row_high * 6).encode("utf-8")
+        valid_file = io.BytesIO(csv_content)
+
+        response = self.client.post(
+            "/api/v1/train/upload",
+            files={"file": ("kaggle_dotted_adult.csv", valid_file, "text/csv")},
+            headers=self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["rows_ingested"], 12)
+
+    def test_18c_retrain_unauthenticated_rejected(self):
+        """Rechazo con 401 en /retrain si no se suministra token Bearer (Finding 3)."""
+        response = self.client.post("/api/v1/retrain")
+        self.assertEqual(response.status_code, 401)
+
     # =========================================================================
-    # 8. PRUEBAS DE COMUNICACIÓN EN TIEMPO REAL (WEBSOCKET)
+    # 8. PRUEBAS DE COMUNICACIÓN EN TIEMPO REAL (WEBSOCKET) (FINDINGS 1, 8, 12)
     # =========================================================================
     def test_19_websocket_retrain_stream(self):
         """Verifica el handshake WebSocket, recepción de bienvenida y respuesta a ping."""
@@ -338,6 +405,12 @@ class TestRobustBackendAPI(unittest.TestCase):
             websocket.send_text("ping")
             pong_msg = websocket.receive_text()
             self.assertEqual(pong_msg, "pong")
+
+    def test_19b_websocket_invalid_token_rejected(self):
+        """Rechazo del handshake con código de política violada ante token inválido (Finding 1)."""
+        with self.assertRaises(Exception):
+            with self.client.websocket_connect("/ws/retrain?token=invalid_forged_token"):
+                pass
 
 
 if __name__ == "__main__":

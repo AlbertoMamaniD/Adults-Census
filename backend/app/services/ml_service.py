@@ -3,6 +3,7 @@ import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
+from fastapi import HTTPException, status
 import joblib
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -21,16 +22,19 @@ class MLService:
         self.metadata: Dict[str, Any] = {}
         self.model_version: str = "unknown"
         self.threshold: float = 0.77
-        self.load_active_model()
+        self.load_active_model(raise_on_missing=False)
 
-    def load_active_model(self) -> None:
+    def load_active_model(self, raise_on_missing: bool = False) -> None:
         """Carga en memoria el artefacto binario y los metadatos más recientes."""
         model_path = settings.ARTIFACTS_DIR / "model_latest.joblib"
         metadata_path = settings.ARTIFACTS_DIR / "metadata_latest.json"
 
         if not model_path.exists():
-            logger.error(f"Artefacto de modelo no encontrado en: {model_path}")
-            raise FileNotFoundError(f"No se encontró el artefacto de modelo en {model_path}")
+            logger.warning(f"Artefacto de modelo no encontrado en: {model_path}. Servicio en espera de inicialización o reentrenamiento.")
+            if raise_on_missing:
+                raise FileNotFoundError(f"No se encontró el artefacto de modelo en {model_path}")
+            self.model = None
+            return
 
         logger.info(f"Cargando modelo serializado desde {model_path}...")
         self.model = joblib.load(model_path)
@@ -51,7 +55,12 @@ class MLService:
     def predict(self, input_data: PredictionInput, db: Optional[Session] = None) -> PredictionResponse:
         """Ejecuta inferencia en tiempo real, mide latencia y persiste la predicción en base de datos."""
         if self.model is None:
-            self.load_active_model()
+            self.load_active_model(raise_on_missing=False)
+            if self.model is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="El modelo de inferencia no está disponible en este momento. Por favor ejecute el reentrenamiento para inicializarlo.",
+                )
 
         data_dict = input_data.to_inference_dict()
         df = pd.DataFrame([data_dict])
@@ -91,6 +100,10 @@ class MLService:
             except Exception as e:
                 db.rollback()
                 logger.error(f"Error al persistir auditoría de predicción en DB: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Fallo al persistir la auditoría de predicción en la base de datos: {str(e)}",
+                )
 
         return PredictionResponse(
             predicted_class=predicted_class,
@@ -105,7 +118,12 @@ class MLService:
     def get_metrics(self) -> Dict[str, Any]:
         """Retorna las métricas y configuración del modelo activo."""
         if not self.metadata:
-            self.load_active_model()
+            self.load_active_model(raise_on_missing=False)
+        if not self.metadata:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Los metadatos del modelo no están disponibles. Se requiere entrenar un modelo primero.",
+            )
         return self.metadata
 
 

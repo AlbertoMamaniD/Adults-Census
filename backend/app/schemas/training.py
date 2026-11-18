@@ -10,6 +10,14 @@ class UploadDatasetResponse(BaseModel):
     message: str = Field(..., description="Mensaje explicativo del proceso", examples=["Archivo validado y registrado en training_datasets."])
 
 
+class RetrainRequest(BaseModel):
+    dataset_id: Optional[int] = Field(
+        default=None,
+        description="ID del dataset registrado en training_datasets a utilizar. Si se omite, se usa el último dataset subido o el dataset base data/adult.csv.",
+        examples=[1],
+    )
+
+
 class RetrainResponse(BaseModel):
     status: str = Field(..., description="Estado del pipeline", examples=["success"])
     message: str = Field(..., description="Resumen de ejecución", examples=["Pipeline CRISP-ML(Q) completado con éxito."])
