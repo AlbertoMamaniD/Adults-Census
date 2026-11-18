@@ -123,6 +123,19 @@ async def lifespan(app: FastAPI):
             )
             try:
                 with SessionLocal() as db:
+                    # Verificar si la versión activa en BD cambió concurrentemente mientras se cargaba el modelo (Finding Qodo)
+                    current_active = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
+                    current_active_version = current_active.model_version if current_active else None
+
+                    if current_active_version != active_db_version:
+                        logger.info(
+                            f"Detectado cambio concurrente en la versión activa de base de datos "
+                            f"(inicial: {active_db_version} -> actual: {current_active_version}). "
+                            "Intentando recargar la versión más reciente..."
+                        )
+                        active_db_version = current_active_version
+                        ml_service.load_active_model(target_version=active_db_version, raise_on_missing=False)
+
                     raw_m = ml_service.metadata.get("metrics", {})
                     cm = raw_m.get("confusion_matrix", {})
                     tn = cm.get("tn") if "tn" in cm else raw_m.get("true_negatives", 0)
@@ -154,9 +167,11 @@ async def lifespan(app: FastAPI):
                             db.add(run_entry)
                             db.commit()
                     else:
-                        # Reconciliación condicional a que el run activo en DB siga siendo el observado inicialmente
-                        current_active = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
-                        if current_active is None or current_active.model_version == active_db_version:
+                        # Asegurar atómicamente que el run activo en DB sigue siendo active_db_version antes de activar
+                        latest_active = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
+                        latest_active_version = latest_active.model_version if latest_active else None
+
+                        if latest_active_version == active_db_version or latest_active is None:
                             db.query(ModelRun).filter(
                                 ModelRun.is_active == True,
                                 ModelRun.model_version != ml_service.model_version
@@ -178,6 +193,13 @@ async def lifespan(app: FastAPI):
 
                             db.commit()
                             logger.info(f"Versión de modelo '{ml_service.model_version}' verificada y activa en base de datos.")
+                        else:
+                            # Cambio concurrente durante la activación: entrar en modo degradado sin sobrescribir DB
+                            logger.warning(
+                                f"La versión activa cambió concurrentemente a '{latest_active_version}' "
+                                f"durante la activación. Entrando en modo degradado sin sobrescribir."
+                            )
+                            ml_service.is_fallback = True
             except Exception as db_err:
                 logger.warning(f"Aviso de sincronización de model_runs en arranque: {db_err}")
     except Exception as e:

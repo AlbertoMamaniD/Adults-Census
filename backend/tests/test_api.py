@@ -11,7 +11,10 @@ if str(BACKEND_DIR) not in sys.path:
 
 from fastapi.testclient import TestClient
 from app.config import settings
-from app.main import app
+from app.main import app, lifespan
+from app.services.ml_service import ml_service
+from app.database.connection import SessionLocal
+from app.database.models import ModelRun, Prediction
 
 
 class TestRobustBackendAPI(unittest.TestCase):
@@ -411,6 +414,121 @@ class TestRobustBackendAPI(unittest.TestCase):
         with self.assertRaises(Exception):
             with self.client.websocket_connect("/ws/retrain?token=invalid_forged_token"):
                 pass
+
+    # =========================================================================
+    # 9. PRUEBAS DE RESILIENCIA EN ARRANQUE Y RECUPERACIÓN DE MLOPS (QODO BUGS)
+    # =========================================================================
+    def test_20_predict_recovery_in_fallback_preserves_active_run(self):
+        """Verifica que la auto-recuperación de ModelRun en fallback no reactive modelos obsoletos (Qodo Issue 1)."""
+        original_fallback = ml_service.is_fallback
+        original_version = ml_service.model_version
+        test_fallback_version = "v_test_fallback_recovery_999"
+        test_active_version = "v_test_active_retrained_999"
+
+        with SessionLocal() as db:
+            # Limpiar previos si existieran respetando restricciones de integridad referencial
+            db.query(Prediction).filter(Prediction.model_version.in_([test_fallback_version, test_active_version])).delete()
+            db.query(ModelRun).filter(ModelRun.model_version.in_([test_fallback_version, test_active_version])).delete()
+            # Crear un run activo existente en DB
+            active_run = ModelRun(
+                model_version=test_active_version,
+                model_name="HistGradientBoostingClassifier",
+                threshold=0.77,
+                metrics={"mcc": 0.65, "confusion_matrix": {"tn": 10, "fp": 1, "fn": 1, "tp": 10}},
+                is_active=True,
+            )
+            db.add(active_run)
+            db.commit()
+
+        try:
+            # Simular que el servicio está en modo degradado (fallback)
+            ml_service.is_fallback = True
+            ml_service.model_version = test_fallback_version
+
+            # Ejecutar una predicción que disparará la auto-recuperación de ModelRun en DB
+            payload = {
+                "age": 35,
+                "workclass": "Private",
+                "education_num": 13,
+                "marital_status": "Married-civ-spouse",
+                "occupation": "Exec-managerial",
+                "relationship": "Husband",
+                "race": "White",
+                "sex": "Male",
+                "capital_gain": 0.0,
+                "capital_loss": 0.0,
+                "hours_per_week": 40,
+                "native_country": "United-States",
+            }
+            resp = self.client.post("/api/v1/predict", json=payload)
+            self.assertEqual(resp.status_code, 200)
+
+            # Verificar en DB que la versión de fallback se insertó como is_active=False
+            with SessionLocal() as db:
+                rec_run = db.query(ModelRun).filter(ModelRun.model_version == test_fallback_version).first()
+                self.assertIsNotNone(rec_run)
+                self.assertFalse(rec_run.is_active, "El run de respaldo insertado por predict no debe marcarse como activo")
+
+                active_check = db.query(ModelRun).filter(ModelRun.model_version == test_active_version).first()
+                self.assertIsNotNone(active_check)
+                self.assertTrue(active_check.is_active, "El run retrenado activo debe permanecer como activo")
+        finally:
+            ml_service.is_fallback = original_fallback
+            ml_service.model_version = original_version
+            with SessionLocal() as db:
+                db.query(Prediction).filter(Prediction.model_version.in_([test_fallback_version, test_active_version])).delete()
+                db.query(ModelRun).filter(ModelRun.model_version.in_([test_fallback_version, test_active_version])).delete()
+                db.commit()
+
+    def test_21_startup_reconciliation_handles_concurrent_version_change(self):
+        """Verifica que el arranque maneje cambios concurrentes de versión activa en DB (Qodo Issue 2)."""
+        test_new_active_version = "v_test_concurrent_active_888"
+
+        with SessionLocal() as db:
+            db.query(ModelRun).filter(ModelRun.model_version == test_new_active_version).delete()
+            db.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
+            new_run = ModelRun(
+                model_version=test_new_active_version,
+                model_name="HistGradientBoostingClassifier",
+                threshold=0.77,
+                metrics={"mcc": 0.62, "confusion_matrix": {"tn": 10, "fp": 1, "fn": 1, "tp": 10}},
+                is_active=True,
+            )
+            db.add(new_run)
+            db.commit()
+
+        try:
+            # Simular la secuencia de startup de lifespan:
+            # 1. Probe inicial ve None o versión previa
+            active_db_version = "v_previa_inexistente"
+            ml_service.load_active_model(target_version=active_db_version, raise_on_missing=False)
+
+            # 2. La segunda consulta en DB descubre que ahora la activa es test_new_active_version
+            with SessionLocal() as db:
+                current_active = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
+                current_active_version = current_active.model_version if current_active else None
+
+                self.assertNotEqual(current_active_version, active_db_version)
+
+                # El arranque detecta el cambio e intenta recargar la versión actual
+                active_db_version = current_active_version
+                ml_service.load_active_model(target_version=active_db_version, raise_on_missing=False)
+
+                # Como test_new_active_version no tiene archivo en disco, entra en modo fallback
+                self.assertTrue(ml_service.is_fallback)
+
+                # Y verifica que la versión activa en DB NO haya sido desactivada
+                active_check = db.query(ModelRun).filter(ModelRun.model_version == test_new_active_version).first()
+                self.assertTrue(active_check.is_active)
+        finally:
+            with SessionLocal() as db:
+                db.query(ModelRun).filter(ModelRun.model_version == test_new_active_version).delete()
+                # Restaurar el modelo actual como activo
+                current_real = db.query(ModelRun).order_by(ModelRun.id.desc()).first()
+                if current_real:
+                    current_real.is_active = True
+                db.commit()
+            ml_service.load_active_model(raise_on_missing=False)
 
 
 if __name__ == "__main__":

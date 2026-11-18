@@ -141,13 +141,21 @@ class MLService:
                         **raw_m,
                         "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
                     }
+                    # Si el modelo en servicio es de respaldo (fallback), insertarlo como inactivo (is_active=False)
+                    # para preservar el run activo seleccionado en base de datos y evitar reactivaciones obsoletas (Qodo Issue 1).
+                    is_active_for_recovery = False
+                    if not self.is_fallback:
+                        active_exists = db.query(ModelRun).filter(ModelRun.is_active == True).first()
+                        if not active_exists or active_exists.model_version == self.model_version:
+                            is_active_for_recovery = True
+
                     new_run = ModelRun(
                         model_version=self.model_version,
-                        model_name=self.metadata.get("model_name", "Gradient boosting"),
+                        model_name=self.metadata.get("model_name", "HistGradientBoostingClassifier"),
                         threshold=self.threshold,
                         metrics=normalized_metrics,
                         parameters=self.metadata.get("parameters", {}),
-                        is_active=True,
+                        is_active=is_active_for_recovery,
                     )
                     db.add(new_run)
                     db.commit()
