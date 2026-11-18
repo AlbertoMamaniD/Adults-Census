@@ -1,0 +1,980 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Servicio de Precalificación Crediticia - CRISP-ML(Q)",
+    "description": "### Servicio de Inteligencia Artificial para Precalificación Crediticia Automatizada\n\nAPI REST asíncrona desacoplada construida bajo el estándar **CRISP-ML(Q)** (*Cross-Industry Standard Process for Machine Learning with Quality Assurance*).\n\n**Características Principales:**\n- **Modelo Clasificador:** HistGradientBoostingClassifier (Scikit-Learn 1.9.1).\n- **Umbral de Decisión Calibrado:** $\\theta = 0.77$ (optimizado bajo costo asimétrico $3\\times FP + 1\\times FN$).\n- **Métrica de Calidad Principal:** Matthews Correlation Coefficient ($MCC = 0.6192 \\ge 0.55$).\n- **Seguridad y Auditoría:** Autenticación JWT Bearer, Rate Limiting (120 req/min), headers OWASP y persistencia en Supabase PostgreSQL.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "Salud del Sistema"
+        ],
+        "summary": "Verificación de salud del servicio (v1)",
+        "operationId": "health_check_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Salud del Sistema"
+        ],
+        "summary": "Verificación de salud del servicio",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Iniciar sesión y obtener token JWT Bearer",
+        "description": "Valida las credenciales del usuario y genera un token JWT Bearer para acceder a los endpoints protegidos.",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/predict": {
+      "post": {
+        "tags": [
+          "Inferencia en Tiempo Real"
+        ],
+        "summary": "Inferencia en tiempo real para precalificación crediticia",
+        "description": "### Evaluación de Solvencia Crediticia Simulada\n\nEste endpoint evalúa los 12 atributos censales de un solicitante utilizando el pipeline serializado en producción.\n\n**Flujo de Negocio:**\n1. **Validación:** Comprueba tipos y rangos de edad (17-100), horas (1-100), capital y variables categóricas.\n2. **Transformación:** Escala variables numéricas y aplica One-Hot Encoding tolerando categorías desconocidas (`handle_unknown='ignore'`).\n3. **Inferencia:** El clasificador `HistGradientBoostingClassifier` calcula la probabilidad $P(\\text{income} > \\$50\\text{K})$.\n4. **Regla de Decisión:** Aplica el umbral robusto calibrado **$\\theta = 0.77$** (determinado para minimizar la función de costo asimétrica $3\\times FP + 1\\times FN$):\n   - Si $P \\ge 0.77$: Clasifica como `>50K` (Califica para producto crediticio de alto monto).\n   - Si $P < 0.77$: Clasifica como `<=50K` (No califica por riesgo crediticio o ingresos insuficientes).\n5. **Auditoría:** Persiste el registro transaccional en la tabla `predictions` de Supabase PostgreSQL con su latencia en ms.",
+        "operationId": "predict_api_v1_predict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PredictionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Inferencia exitosa. Devuelve la clase predicha, probabilidad, umbral aplicado y recomendación de riesgo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Error de validación. Los campos enviados violan los límites de rango o formato de esquema."
+          },
+          "429": {
+            "description": "Rate limit excedido. Se superó el límite de 120 peticiones por minuto por IP."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/history": {
+      "get": {
+        "tags": [
+          "Historial de Predicciones"
+        ],
+        "summary": "Consultar historial de inferencias realizadas",
+        "description": "### Auditoría Transaccional de Decisiones Crediticias\n\nRecupera las predicciones registradas en la base de datos Supabase PostgreSQL en orden cronológico descendente.\n\n**Utilidad:**\n- **Trazabilidad:** Auditar qué recomendación se le otorgó a un solicitante y qué atributos demográficos tenía.\n- **Monitoreo de Drift:** Permite al frontend o a analistas detectar cambios en la distribución de probabilidades.\n- **Paginación Eficiente:** Parámetros `limit` (1 a 200) y `offset` (desplazamiento).",
+        "operationId": "get_prediction_history_api_v1_history_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Cantidad máxima de registros a recuperar (1-200)",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Cantidad máxima de registros a recuperar (1-200)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Desplazamiento inicial para paginación",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Desplazamiento inicial para paginación"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de predicciones históricas recuperadas exitosamente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PredictionHistoryItem"
+                  },
+                  "title": "Response Get Prediction History Api V1 History Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Parámetros de consulta (limit u offset) fuera del rango permitido."
+          }
+        }
+      }
+    },
+    "/api/v1/metrics": {
+      "get": {
+        "tags": [
+          "Métricas y MLOps"
+        ],
+        "summary": "Métricas de desempeño del modelo activo en producción",
+        "description": "### Reporte de Evaluación Metodológica CRISP-ML(Q)\n\nRetorna los indicadores de calidad del modelo activo evaluados en el conjunto de prueba independiente (6.508 registros):\n\n- **MCC (Matthews Correlation Coefficient):** Métrica principal obligatoria para datasets desbalanceados ($MCC = 0.6192 \\ge 0.55$).\n- **Precisión:** Proporción de clientes clasificados como solventes que realmente lo son ($78.40\\% \\ge 75\\%$).\n- **Sensibilidad / Recall:** Proporción de clientes solventes detectados ($62.50\\% \\ge 60\\%$).\n- **ROC-AUC:** Capacidad discriminativa global del clasificador ($0.9217 \\ge 0.90$).\n- **Matriz de Confusión:** Desglose exacto de $TN$ (4.670), $FP$ (270), $FN$ (588) y $TP$ (980).\n- **Umbral Calibrado:** $\\theta = 0.77$, optimizado para penalizar 3 veces más el Falso Positivo que el Falso Negativo.",
+        "operationId": "get_model_metrics_api_v1_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Reporte de métricas técnicas y parámetros del modelo activo en producción.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelMetricsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/train/upload": {
+      "post": {
+        "tags": [
+          "Entrenamiento y MLOps"
+        ],
+        "summary": "Cargar nuevo dataset para reentrenamiento",
+        "description": "Sube un archivo CSV con datos censales, valida columnas obligatorias, comprueba integridad y registra el lote en la base de datos.",
+        "operationId": "upload_training_dataset_api_v1_train_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_training_dataset_api_v1_train_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadDatasetResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/retrain": {
+      "post": {
+        "tags": [
+          "Entrenamiento y MLOps"
+        ],
+        "summary": "Ejecutar reentrenamiento completo CRISP-ML(Q)",
+        "description": "Dispara el ciclo completo de preprocesamiento, ajuste del modelo supervisado, optimización de umbral y despliegue del nuevo artefacto.",
+        "operationId": "trigger_retrain_api_v1_retrain_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetrainResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_upload_training_dataset_api_v1_train_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "Archivo CSV del dataset de entrenamiento"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_training_dataset_api_v1_train_upload_post"
+      },
+      "ConfusionMatrix": {
+        "properties": {
+          "tn": {
+            "type": "integer",
+            "title": "Tn",
+            "description": "Verdaderos Negativos (<=50K clasificados como <=50K)"
+          },
+          "fp": {
+            "type": "integer",
+            "title": "Fp",
+            "description": "Falsos Positivos (<=50K clasificados como >50K - Riesgo Mora Crítico)"
+          },
+          "fn": {
+            "type": "integer",
+            "title": "Fn",
+            "description": "Falsos Negativos (>50K clasificados como <=50K - Costo Oportunidad)"
+          },
+          "tp": {
+            "type": "integer",
+            "title": "Tp",
+            "description": "Verdaderos Positivos (>50K clasificados como >50K - Clientes Solventes)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tn",
+          "fp",
+          "fn",
+          "tp"
+        ],
+        "title": "ConfusionMatrix"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "Nombre de usuario del analista o administrador",
+            "examples": [
+              "analyst"
+            ]
+          },
+          "password": {
+            "type": "string",
+            "title": "Password",
+            "description": "Contraseña de acceso",
+            "examples": [
+              "********"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "MetricsDetails": {
+        "properties": {
+          "mcc": {
+            "type": "number",
+            "title": "Mcc",
+            "description": "Matthews Correlation Coefficient (Métrica Principal >= 0.55)"
+          },
+          "precision": {
+            "type": "number",
+            "title": "Precision",
+            "description": "Precisión en clase positiva (>= 0.75)"
+          },
+          "recall": {
+            "type": "number",
+            "title": "Recall",
+            "description": "Sensibilidad / Recall en clase positiva (>= 0.60)"
+          },
+          "roc_auc": {
+            "type": "number",
+            "title": "Roc Auc",
+            "description": "Área bajo la curva ROC (>= 0.90)"
+          },
+          "accuracy": {
+            "type": "number",
+            "title": "Accuracy",
+            "description": "Exactitud global"
+          },
+          "f1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "F1",
+            "description": "F1-Score armónico"
+          },
+          "confusion_matrix": {
+            "$ref": "#/components/schemas/ConfusionMatrix",
+            "description": "Matriz de confusión detallada"
+          },
+          "expected_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Cost",
+            "description": "Costo asimétrico esperado (3*FP + 1*FN)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mcc",
+          "precision",
+          "recall",
+          "roc_auc",
+          "accuracy",
+          "confusion_matrix"
+        ],
+        "title": "MetricsDetails"
+      },
+      "ModelMetricsResponse": {
+        "properties": {
+          "model_version": {
+            "type": "string",
+            "title": "Model Version",
+            "description": "Versión inmutable del modelo activo"
+          },
+          "model_name": {
+            "type": "string",
+            "title": "Model Name",
+            "description": "Nombre del algoritmo clasificador"
+          },
+          "trained_at": {
+            "type": "string",
+            "title": "Trained At",
+            "description": "Fecha y hora de entrenamiento (ISO 8601 UTC)"
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold",
+            "description": "Umbral de decisión calibrado"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/MetricsDetails",
+            "description": "Métricas de desempeño validadas"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameters",
+            "description": "Hiperparámetros relevantes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_version",
+          "model_name",
+          "trained_at",
+          "threshold",
+          "metrics"
+        ],
+        "title": "ModelMetricsResponse"
+      },
+      "PredictionHistoryItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "ID único de la predicción"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Marca temporal de la inferencia (UTC)"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version",
+            "description": "Versión del modelo empleada"
+          },
+          "input_data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Input Data",
+            "description": "Datos demográficos y socioeconómicos del cliente"
+          },
+          "predicted_class": {
+            "type": "string",
+            "title": "Predicted Class",
+            "description": "Clase predicha ('>50K' o '<=50K')"
+          },
+          "probability": {
+            "type": "number",
+            "title": "Probability",
+            "description": "Probabilidad estimada de pertenencia a clase positiva"
+          },
+          "latency_ms": {
+            "type": "number",
+            "title": "Latency Ms",
+            "description": "Latencia de procesamiento en milisegundos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "model_version",
+          "input_data",
+          "predicted_class",
+          "probability",
+          "latency_ms"
+        ],
+        "title": "PredictionHistoryItem"
+      },
+      "PredictionInput": {
+        "properties": {
+          "age": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 17.0,
+            "title": "Age",
+            "description": "Edad del solicitante (años, rango 17-100)",
+            "examples": [
+              39
+            ]
+          },
+          "workclass": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Workclass",
+            "description": "Sector laboral o tipo de empleo",
+            "examples": [
+              "State-gov"
+            ]
+          },
+          "education_num": {
+            "type": "integer",
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Education Num",
+            "description": "Años de educación formal completados (1-16)",
+            "examples": [
+              13
+            ]
+          },
+          "marital_status": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Marital Status",
+            "description": "Estado civil",
+            "examples": [
+              "Never-married"
+            ]
+          },
+          "occupation": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Occupation",
+            "description": "Ocupación o cargo desempeñado",
+            "examples": [
+              "Adm-clerical"
+            ]
+          },
+          "relationship": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Relationship",
+            "description": "Rol en el núcleo familiar",
+            "examples": [
+              "Not-in-family"
+            ]
+          },
+          "race": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Race",
+            "description": "Grupo étnico reportado",
+            "examples": [
+              "White"
+            ]
+          },
+          "sex": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Sex",
+            "description": "Sexo biológico",
+            "examples": [
+              "Male"
+            ]
+          },
+          "capital_gain": {
+            "type": "number",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Capital Gain",
+            "description": "Ganancias de capital anuales ($ USD)",
+            "default": 0.0,
+            "examples": [
+              2174.0
+            ]
+          },
+          "capital_loss": {
+            "type": "number",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Capital Loss",
+            "description": "Pérdidas de capital anuales ($ USD)",
+            "default": 0.0,
+            "examples": [
+              0.0
+            ]
+          },
+          "hours_per_week": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Hours Per Week",
+            "description": "Horas promedio trabajadas por semana (1-100)",
+            "examples": [
+              40
+            ]
+          },
+          "native_country": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Native Country",
+            "description": "País de origen",
+            "examples": [
+              "United-States"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "age",
+          "workclass",
+          "education_num",
+          "marital_status",
+          "occupation",
+          "relationship",
+          "race",
+          "sex",
+          "hours_per_week",
+          "native_country"
+        ],
+        "title": "PredictionInput"
+      },
+      "PredictionResponse": {
+        "properties": {
+          "predicted_class": {
+            "type": "string",
+            "title": "Predicted Class",
+            "description": "Clase predicha ('>50K' o '<=50K')",
+            "examples": [
+              "<=50K"
+            ]
+          },
+          "probability": {
+            "type": "number",
+            "title": "Probability",
+            "description": "Probabilidad estimada de la clase positiva '>50K'",
+            "examples": [
+              0.1824
+            ]
+          },
+          "threshold_applied": {
+            "type": "number",
+            "title": "Threshold Applied",
+            "description": "Umbral de decisión calibrado aplicado",
+            "examples": [
+              0.77
+            ]
+          },
+          "latency_ms": {
+            "type": "number",
+            "title": "Latency Ms",
+            "description": "Latencia de inferencia en milisegundos",
+            "examples": [
+              12.4
+            ]
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version",
+            "description": "Identificador inmutable de la versión del modelo",
+            "examples": [
+              "v20261117002816"
+            ]
+          },
+          "recommendation": {
+            "type": "string",
+            "title": "Recommendation",
+            "description": "Recomendación comercial y de riesgo crediticio",
+            "examples": [
+              "No califica para producto de crédito de alto monto."
+            ]
+          },
+          "prediction_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prediction Id",
+            "description": "Identificador único del registro auditado en base de datos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "predicted_class",
+          "probability",
+          "threshold_applied",
+          "latency_ms",
+          "model_version",
+          "recommendation"
+        ],
+        "title": "PredictionResponse"
+      },
+      "RetrainResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Estado del pipeline",
+            "examples": [
+              "success"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Resumen de ejecución",
+            "examples": [
+              "Pipeline CRISP-ML(Q) completado con éxito."
+            ]
+          },
+          "new_model_version": {
+            "type": "string",
+            "title": "New Model Version",
+            "description": "Identificador de la nueva versión de artefacto generada",
+            "examples": [
+              "v20261118153000"
+            ]
+          },
+          "updated_metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Updated Metrics",
+            "description": "Métricas de evaluación del nuevo modelo entrenado"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold",
+            "description": "Nuevo umbral robusto calibrado"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "new_model_version",
+          "updated_metrics"
+        ],
+        "title": "RetrainResponse"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token",
+            "description": "Token Bearer JWT para autenticar peticiones"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "description": "Tipo de token",
+            "default": "bearer"
+          },
+          "expires_in_minutes": {
+            "type": "integer",
+            "title": "Expires In Minutes",
+            "description": "Tiempo de vigencia en minutos",
+            "default": 1440
+          },
+          "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "Usuario autenticado"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "username"
+        ],
+        "title": "TokenResponse"
+      },
+      "UploadDatasetResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Estado de la operación",
+            "examples": [
+              "success"
+            ]
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "Nombre del archivo procesado",
+            "examples": [
+              "adult_actualizado.csv"
+            ]
+          },
+          "rows_ingested": {
+            "type": "integer",
+            "title": "Rows Ingested",
+            "description": "Cantidad de registros leídos y validados",
+            "examples": [
+              32561
+            ]
+          },
+          "dataset_id": {
+            "type": "integer",
+            "title": "Dataset Id",
+            "description": "ID asignado en base de datos",
+            "examples": [
+              1
+            ]
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Mensaje explicativo del proceso",
+            "examples": [
+              "Archivo validado y registrado en training_datasets."
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "filename",
+          "rows_ingested",
+          "dataset_id",
+          "message"
+        ],
+        "title": "UploadDatasetResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Inferencia en Tiempo Real",
+      "description": "**Evaluación de precalificación crediticia.** Procesa los 12 atributos censales del solicitante, ejecuta inferencia mediante `HistGradientBoostingClassifier`, aplica el umbral robusto calibrado (**θ = 0.77**) minimizando la función de costo asimétrica ($3\\times FP + 1\\times FN$), calcula la latencia en milisegundos y audita la predicción en la base de datos Supabase PostgreSQL."
+    },
+    {
+      "name": "Historial de Predicciones",
+      "description": "**Auditoría y trazabilidad transaccional.** Recupera las predicciones registradas cronológicamente con soporte de paginación (`limit`, `offset`) para análisis de drift y auditoría de decisiones."
+    },
+    {
+      "name": "Métricas y MLOps",
+      "description": "**Reporte de calidad del modelo activo (CRISP-ML(Q)).** Expone el desempeño en el conjunto de prueba: **MCC** (meta $\\ge 0.55$, alcanzado $0.6192$), **Precisión** ($\\ge 0.75$, alcanzado $0.7840$), **Sensibilidad** ($\\ge 0.60$, alcanzado $0.6250$), **ROC-AUC** ($\\ge 0.90$, alcanzado $0.9217$) y la matriz de confusión completa ($TN, FP, FN, TP$)."
+    },
+    {
+      "name": "Entrenamiento y MLOps",
+      "description": "**Ingesta de datos y ciclo de reentrenamiento continuo.** Permite la subida segura de archivos CSV (hasta 50 MB) con validación de esquema censal, y el disparo asíncrono del pipeline completo con protección de concurrencia (`asyncio.Lock`)."
+    },
+    {
+      "name": "WebSocket Streaming",
+      "description": "**Canal bidireccional de eventos en vivo.** Retransmite el progreso de reentrenamiento paso a paso (25% preprocesamiento $\\rightarrow$ 50% entrenamiento $\\rightarrow$ 75% evaluación $\\rightarrow$ 100% despliegue)."
+    },
+    {
+      "name": "Autenticación",
+      "description": "**Seguridad de acceso para analistas.** Emisión y validación de tokens criptográficos **JWT Bearer (HS256)** con vigencia de 24 horas y protección contra ataques de temporización (*Timing Attacks*)."
+    },
+    {
+      "name": "Salud del Sistema",
+      "description": "**Monitoreo y disponibilidad.** Comprobación de conectividad con Supabase PostgreSQL, estado del servicio y versión inmutable del modelo activo."
+    }
+  ]
+}

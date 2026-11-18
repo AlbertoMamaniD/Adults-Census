@@ -1,28 +1,31 @@
-# Documentación Swagger / OpenAPI de la API REST
+# 📑 Documentación Swagger / OpenAPI de la API REST
 
-Este directorio contiene la especificación y documentación interactiva de la API REST del Servicio de Inteligencia Artificial.
-
----
-
-## 🌐 Acceso a la Documentación Swagger en Vivo
-
-Cuando el servicio backend esté en ejecución local (`http://localhost:8000`):
-
-* **Swagger UI interactivo:** [http://localhost:8000/docs](http://localhost:8000/docs)
-  Permite probar interactivamente todos los endpoints (`/predict`, `/history`, `/metrics`, `/retrain`, `/train/upload`) directamente desde el navegador con payloads de ejemplo.
-* **Redoc UI alternativo:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
-* **Especificación OpenAPI (JSON crudo):** [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
+Este directorio contiene la especificación formal y documentación interactiva de la API REST del Servicio de Inteligencia Artificial para la precalificación crediticia automatizada simulada.
 
 ---
 
-## 📄 Archivo Estático OpenAPI / Swagger
+## 🌐 1. Acceso a la Documentación Interactiva en Vivo
 
-Para la entrega formal del proyecto, se puede exportar el archivo estático en formato JSON o YAML en esta misma carpeta:
+Cuando el servicio backend esté en ejecución local (`http://127.0.0.1:8000`):
 
-```bash
-# Para exportar la especificación a un archivo local:
-curl http://localhost:8000/openapi.json -o docs/swagger/swagger.json
+* **Swagger UI interactivo:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+  Permite probar interactivamente todos los endpoints (`/api/v1/predict`, `/api/v1/history`, `/api/v1/metrics`, `/api/v1/train/upload`, `/api/v1/retrain`, `/api/v1/auth/login`, `/health`) directamente desde el navegador con payloads de ejemplo predefinidos.
+* **Redoc UI alternativo:** [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
+  Vista de especificación técnica formal y estructurada para desarrolladores y auditoría.
+* **Especificación OpenAPI (JSON crudo):** [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json)
+
+---
+
+## 📄 2. Archivo Estático OpenAPI Exportado (`swagger.json`)
+
+Para la entrega formal del proyecto académico y trazabilidad de software, se encuentra exportado el archivo estático:
+
+* **Ruta del artefacto:** `docs/swagger/swagger.json`
+* **Formato:** OpenAPI Specification v3.1.0 (JSON).
+* **Compatibilidad:** Puede ser importado directamente en **Postman**, **Insomnia**, **Swagger Editor** o herramientas de generación de SDKs clientes.
+
+Para actualizar o re-exportar la especificación en cualquier momento tras modificaciones en los endpoints:
+```powershell
+# Opción directa vía cURL con el backend corriendo:
+curl http://127.0.0.1:8000/openapi.json -o docs/swagger/swagger.json
 ```
-
-O guardar aquí el archivo `swagger.yaml` correspondiente para su visualización offline o importación en herramientas como Postman o Insomnia.
-
