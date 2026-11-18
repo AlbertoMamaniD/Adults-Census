@@ -22,10 +22,14 @@ class MLService:
         self.metadata: Dict[str, Any] = {}
         self.model_version: str = "unknown"
         self.threshold: float = 0.77
+        self.is_fallback: bool = False
+        self.requested_version: Optional[str] = None
         self.load_active_model(raise_on_missing=False)
 
     def load_active_model(self, target_version: Optional[str] = None, raise_on_missing: bool = False) -> None:
         """Carga en memoria el artefacto binario y los metadatos desde el par atómico inmutable o versión objetivo."""
+        self.requested_version = target_version
+        self.is_fallback = False
         active_version_file = settings.ARTIFACTS_DIR / "active_version.json"
         model_path = None
         metadata_path = None
@@ -38,6 +42,12 @@ class MLService:
                 model_path = m_cand
                 metadata_path = meta_cand
                 logger.info(f"Cargando versión activa objetivo desde disco: {target_version}")
+            else:
+                self.is_fallback = True
+                logger.warning(
+                    f"Versión solicitada '{target_version}' no encontrada en disco local. "
+                    "Activando modo degradado de respaldo (fallback) sin sobrescribir la versión activa de la base de datos."
+                )
 
         # 2. Si no, consultar el manifiesto atómico active_version.json
         if model_path is None and active_version_file.exists():
@@ -73,8 +83,11 @@ class MLService:
                 self.metadata = json.load(f)
             self.model_version = self.metadata.get("model_version", "v_latest")
             self.threshold = float(self.metadata.get("threshold", 0.77))
+            if target_version and self.model_version != target_version:
+                self.is_fallback = True
             logger.info(
-                f"Metadatos cargados con éxito. Versión: {self.model_version}, Umbral Calibrado: {self.threshold:.4f}"
+                f"Metadatos cargados con éxito. Versión: {self.model_version}, Umbral Calibrado: {self.threshold:.4f} "
+                f"(Fallback: {self.is_fallback})"
             )
         else:
             logger.warning(f"Metadatos no encontrados en {metadata_path}. Usando valores por defecto.")

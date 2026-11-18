@@ -117,42 +117,67 @@ async def lifespan(app: FastAPI):
         ml_service.load_active_model(target_version=active_db_version, raise_on_missing=False)
 
         if ml_service.model is not None:
-            logger.info(f"Modelo cargado: {ml_service.model_version} (Umbral: {ml_service.threshold})")
+            logger.info(
+                f"Modelo cargado: {ml_service.model_version} (Umbral: {ml_service.threshold}) "
+                f"[Modo Fallback: {ml_service.is_fallback}]"
+            )
             try:
                 with SessionLocal() as db:
-                    # Desactivar cualquier otro modelo activo en DB para evitar discordancia con la versión en ejecución (Qodo redeploy reconciliation)
-                    db.query(ModelRun).filter(
-                        ModelRun.is_active == True,
-                        ModelRun.model_version != ml_service.model_version
-                    ).update({"is_active": False})
+                    raw_m = ml_service.metadata.get("metrics", {})
+                    cm = raw_m.get("confusion_matrix", {})
+                    tn = cm.get("tn") if "tn" in cm else raw_m.get("true_negatives", 0)
+                    fp = cm.get("fp") if "fp" in cm else raw_m.get("false_positives", 0)
+                    fn = cm.get("fn") if "fn" in cm else raw_m.get("false_negatives", 0)
+                    tp = cm.get("tp") if "tp" in cm else raw_m.get("true_positives", 0)
+                    normalized_metrics = {
+                        **raw_m,
+                        "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
+                    }
 
-                    existing_run = db.query(ModelRun).filter(ModelRun.model_version == ml_service.model_version).first()
-                    if not existing_run:
-                        logger.info(f"Registrando versión de artefacto activo '{ml_service.model_version}' en tabla model_runs...")
-                        raw_m = ml_service.metadata.get("metrics", {})
-                        cm = raw_m.get("confusion_matrix", {})
-                        tn = cm.get("tn") if "tn" in cm else raw_m.get("true_negatives", 0)
-                        fp = cm.get("fp") if "fp" in cm else raw_m.get("false_positives", 0)
-                        fn = cm.get("fn") if "fn" in cm else raw_m.get("false_negatives", 0)
-                        tp = cm.get("tp") if "tp" in cm else raw_m.get("true_positives", 0)
-                        normalized_metrics = {
-                            **raw_m,
-                            "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
-                        }
-                        run_entry = ModelRun(
-                            model_version=ml_service.model_version,
-                            model_name=ml_service.metadata.get("model_name", "HistGradientBoostingClassifier"),
-                            threshold=ml_service.threshold,
-                            metrics=normalized_metrics,
-                            parameters=ml_service.metadata.get("parameters", {}),
-                            is_active=True,
+                    if ml_service.is_fallback:
+                        # Modo degradado: NO sobrescribir ni desactivar el run activo en DB (Finding: Restarts can permanently roll back a model)
+                        logger.warning(
+                            f"Estado degradado: La versión activa en base de datos '{active_db_version}' no está disponible "
+                            f"en el sistema de archivos local. Sirviendo temporalmente la versión de respaldo '{ml_service.model_version}' "
+                            f"sin desactivar '{active_db_version}' en la base de datos."
                         )
-                        db.add(run_entry)
+                        fallback_run = db.query(ModelRun).filter(ModelRun.model_version == ml_service.model_version).first()
+                        if not fallback_run:
+                            run_entry = ModelRun(
+                                model_version=ml_service.model_version,
+                                model_name=ml_service.metadata.get("model_name", "HistGradientBoostingClassifier"),
+                                threshold=ml_service.threshold,
+                                metrics=normalized_metrics,
+                                parameters=ml_service.metadata.get("parameters", {}),
+                                is_active=False,
+                            )
+                            db.add(run_entry)
+                            db.commit()
                     else:
-                        existing_run.is_active = True
+                        # Reconciliación condicional a que el run activo en DB siga siendo el observado inicialmente
+                        current_active = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
+                        if current_active is None or current_active.model_version == active_db_version:
+                            db.query(ModelRun).filter(
+                                ModelRun.is_active == True,
+                                ModelRun.model_version != ml_service.model_version
+                            ).update({"is_active": False})
 
-                    db.commit()
-                    logger.info(f"Versión de modelo '{ml_service.model_version}' vinculada activamente en base de datos.")
+                            existing_run = db.query(ModelRun).filter(ModelRun.model_version == ml_service.model_version).first()
+                            if not existing_run:
+                                run_entry = ModelRun(
+                                    model_version=ml_service.model_version,
+                                    model_name=ml_service.metadata.get("model_name", "HistGradientBoostingClassifier"),
+                                    threshold=ml_service.threshold,
+                                    metrics=normalized_metrics,
+                                    parameters=ml_service.metadata.get("parameters", {}),
+                                    is_active=True,
+                                )
+                                db.add(run_entry)
+                            else:
+                                existing_run.is_active = True
+
+                            db.commit()
+                            logger.info(f"Versión de modelo '{ml_service.model_version}' verificada y activa en base de datos.")
             except Exception as db_err:
                 logger.warning(f"Aviso de sincronización de model_runs en arranque: {db_err}")
     except Exception as e:
