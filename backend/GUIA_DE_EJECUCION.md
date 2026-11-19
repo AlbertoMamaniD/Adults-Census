@@ -45,7 +45,7 @@ ADMIN_PASSWORD=clave_acceso_analista
 > **Nota de Resiliencia:** Si no cuentas con internet o credenciales de Supabase, el sistema conmuta automáticamente a la base de datos local SQLite (`artifacts/local_database.db`).
 
 ### Paso 5: Ejecutar la Suite de Pruebas Automatizadas
-Verifica que los 19 tests de frontera, seguridad y persistencia pasen al 100%:
+Verifica que los 28 tests de frontera, concurrencia, seguridad y persistencia pasen al 100%:
 ```powershell
 python -m unittest backend/tests/test_api.py -v
 ```

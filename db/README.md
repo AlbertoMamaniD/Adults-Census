@@ -10,36 +10,37 @@ Este directorio contiene el script DDL de creación de la base de datos, el diag
 erDiagram
     model_runs {
         int id PK
-        varchar model_version UK
-        varchar model_name
-        timestamptz trained_at
-        float threshold
-        jsonb metrics
-        jsonb parameters
-        boolean is_active
+        varchar model_version UK "Identificador único de versión"
+        varchar model_name "Nombre del algoritmo"
+        timestamptz trained_at "Fecha de entrenamiento"
+        float threshold "Umbral calibrado (theta = 0.77)"
+        jsonb metrics "MCC, ROC-AUC, Matriz de Confusión"
+        jsonb parameters "Hiperparámetros óptimos"
+        boolean is_active "Único modelo activo (Partial Index)"
         timestamptz created_at
     }
 
     predictions {
         int id PK
-        timestamptz created_at
-        varchar model_version
-        jsonb input_data
-        varchar predicted_class
-        float probability
-        float latency_ms
+        timestamptz created_at "Timestamp de la petición"
+        varchar model_version FK "Referencia a model_runs"
+        jsonb input_data "Las 12 variables censales enviadas"
+        varchar predicted_class "Clase predicha (>50K o <=50K)"
+        float probability "Probabilidad continua calculada"
+        float latency_ms "Tiempo de respuesta en milisegundos"
     }
 
     training_datasets {
         int id PK
-        varchar filename
-        timestamptz uploaded_at
-        int row_count
-        varchar status
-        text notes
+        varchar filename "Nombre original del archivo"
+        timestamptz uploaded_at "Fecha de carga"
+        int row_count "Cantidad de registros censales"
+        bigint file_size_bytes "Tamaño en bytes"
+        varchar status "uploaded | processing | processed | error"
+        text notes "Nombre físico en almacenamiento seguro"
     }
 
-    model_runs ||--o{ predictions : "registra inferencias con"
+    model_runs ||--o{ predictions : "registra inferencias con (FK)"
     training_datasets ||--o{ model_runs : "origina version entrenada"
 ```
 
