@@ -1,0 +1,19 @@
+{
+  "name": "precalificacion-crediticia-frontend",
+  "version": "1.0.0",
+  "description": "Aplicación web cliente para el sistema de precalificación crediticia automatizada CRISP-ML(Q)",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "python -m http.server 3000"
+  },
+  "keywords": [
+    "fintech",
+    "crisp-ml",
+    "machine-learning",
+    "fastapi",
+    "frontend"
+  ],
+  "author": "Alberto Esteban Mamani Donaire",
+  "license": "MIT"
+}

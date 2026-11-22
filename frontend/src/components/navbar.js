@@ -77,7 +77,10 @@ export function renderNavbar(containerId) {
 
   // Comprobar salud periódicamente
   checkHealthStatus();
-  setInterval(checkHealthStatus, 15000);
+  const healthInterval = setInterval(checkHealthStatus, 15000);
+  if (healthInterval && typeof healthInterval.unref === 'function') {
+    healthInterval.unref();
+  }
 }
 
 export function updateAuthBtnState() {

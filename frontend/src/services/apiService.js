@@ -3,25 +3,27 @@
  * Gestiona endpoints, cabeceras JWT, control de timeout y reconexión WebSocket.
  */
 
-const API_BASE_URL = window.location.origin.includes(':3000') || window.location.origin.includes(':5500')
+const API_BASE_URL = typeof window !== 'undefined' && window.location && (window.location.origin.includes(':3000') || window.location.origin.includes(':5500'))
   ? 'http://127.0.0.1:8000'
-  : (window.API_BASE_URL || 'http://127.0.0.1:8000');
+  : (typeof window !== 'undefined' && window.API_BASE_URL ? window.API_BASE_URL : 'http://127.0.0.1:8000');
 
 const WS_BASE_URL = API_BASE_URL.replace(/^http/, 'ws');
 const DEFAULT_TIMEOUT_MS = 15000;
 
 class ApiService {
   constructor() {
-    this.token = localStorage.getItem('precal_auth_token') || null;
+    this.token = typeof localStorage !== 'undefined' ? localStorage.getItem('precal_auth_token') : null;
     this.ws = null;
   }
 
   setToken(token) {
     this.token = token;
-    if (token) {
-      localStorage.setItem('precal_auth_token', token);
-    } else {
-      localStorage.removeItem('precal_auth_token');
+    if (typeof localStorage !== 'undefined') {
+      if (token) {
+        localStorage.setItem('precal_auth_token', token);
+      } else {
+        localStorage.removeItem('precal_auth_token');
+      }
     }
   }
 
