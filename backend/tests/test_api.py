@@ -22,6 +22,43 @@ from app.database.models import ModelRun, Prediction
 class TestRobustBackendAPI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # 1. Asegurar creación de tablas en SQLite o verificar conexión
+        from app.database.connection import Base, engine
+        Base.metadata.create_all(bind=engine)
+
+        # 2. Inicializar registro del modelo activo si no existe (CI / entornos efímeros SQLite)
+        with SessionLocal() as db:
+            active_model = db.query(ModelRun).filter(ModelRun.model_version == ml_service.model_version).first()
+            raw_m = ml_service.metadata.get("metrics", {})
+            cm = raw_m.get("confusion_matrix", {})
+            tn = cm.get("tn") if "tn" in cm else raw_m.get("true_negatives", 0)
+            fp = cm.get("fp") if "fp" in cm else raw_m.get("false_positives", 0)
+            fn = cm.get("fn") if "fn" in cm else raw_m.get("false_negatives", 0)
+            tp = cm.get("tp") if "tp" in cm else raw_m.get("true_positives", 0)
+            norm_m = {
+                **raw_m,
+                "confusion_matrix": {
+                    "tn": int(tn),
+                    "fp": int(fp),
+                    "fn": int(fn),
+                    "tp": int(tp),
+                },
+            }
+            if not active_model:
+                run_entry = ModelRun(
+                    model_version=ml_service.model_version,
+                    model_name=ml_service.metadata.get("model_name", "HistGradientBoostingClassifier"),
+                    threshold=ml_service.threshold,
+                    metrics=norm_m,
+                    parameters=ml_service.metadata.get("parameters", {}),
+                    is_active=True,
+                )
+                db.add(run_entry)
+            else:
+                active_model.metrics = norm_m
+                active_model.is_active = True
+            db.commit()
+
         cls.client = TestClient(app)
         # Iniciar sesión para obtener token de autenticación para rutas protegidas
         login_resp = cls.client.post(
