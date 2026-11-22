@@ -13,29 +13,29 @@ export function renderNavbar(containerId) {
     <header class="site-header">
       <div class="header-content">
         <div class="brand-wrapper">
-          <div class="brand-icon" aria-hidden="true">IA</div>
+          <div class="brand-icon" aria-hidden="true">🏦</div>
           <div class="brand-info">
-            <h1>Precalificación Crediticia</h1>
-            <span>Metodología CRISP-ML(Q) — UCB San Pablo</span>
+            <h1>Plataforma de Precalificación Crediticia</h1>
+            <span>Metodología CRISP-ML(Q) &bull; Scoring Automatizado de Riesgo Bancario</span>
           </div>
         </div>
 
         <nav class="nav-tabs" aria-label="Navegación principal">
           <button type="button" class="nav-tab-btn active" data-tab="predictor">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-            Inferencia
+            Scoring Crediticio
           </button>
           <button type="button" class="nav-tab-btn" data-tab="metrics">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-            Métricas MLOps
+            Métricas de Riesgo
           </button>
           <button type="button" class="nav-tab-btn" data-tab="history">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
-            Auditoría
+            Auditoría Bancaria
           </button>
           <button type="button" class="nav-tab-btn" data-tab="retrain">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-            Reentrenamiento
+            Actualización MLOps
           </button>
         </nav>
 

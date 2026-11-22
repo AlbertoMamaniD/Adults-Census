@@ -143,11 +143,35 @@
   }
 }
 
+/* Grupos del Formulario Bancario */
+.form-section-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  margin-top: 0.75rem;
+  border-bottom: 2px solid var(--color-primary-100);
+}
+
+.form-section-header h3 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-primary-800);
+  margin: 0;
+}
+
+.form-section-header span {
+  font-size: 0.75rem;
+  color: var(--color-primary-500);
+}
+
 /* Tarjeta de Resultado de Inferencia */
 .prediction-result-card {
   position: sticky;
   top: 5.5rem;
   border-width: 2px;
+  background: linear-gradient(180deg, #ffffff 0%, #fafbfd 100%);
 }
 
 .decision-banner {
@@ -155,24 +179,33 @@
   border-radius: var(--radius-md);
   text-align: center;
   margin-bottom: 1.5rem;
+  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.04);
 }
 
 .decision-banner.positive {
-  background-color: var(--color-positive-bg);
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
   border: 1px solid var(--color-positive-border);
-  color: var(--color-positive);
+  color: #065f46;
 }
 
 .decision-banner.negative {
-  background-color: var(--color-negative-bg);
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
   border: 1px solid var(--color-negative-border);
-  color: var(--color-negative);
+  color: #991b1b;
 }
 
 .decision-title {
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   font-weight: var(--font-weight-bold);
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.35rem;
+  letter-spacing: -0.01em;
+}
+
+.kpi-subtext {
+  font-size: 0.75rem;
+  color: var(--color-primary-600);
+  margin-top: 0.35rem;
+  line-height: 1.35;
 }
 
 .probability-indicator {

@@ -1,5 +1,6 @@
 /**
- * RETRAINCENTER.JS — Módulo 4: Carga de CSV y Reentrenamiento MLOps con WebSocket
+ * RETRAINCENTER.JS — Módulo 4: Carga de Datos y Reentrenamiento Continuo MLOps
+ * Permite adaptar el scoring a cambios macroeconómicos y nuevos lotes de clientes.
  */
 
 import { apiService } from '../services/apiService.js';
@@ -9,14 +10,26 @@ export function renderRetrainCenter(containerId) {
   if (!container) return;
 
   container.innerHTML = `
+    <!-- Banner de Negocio MLOps -->
+    <div class="bank-callout">
+      <div class="bank-callout-icon" aria-hidden="true">🔄</div>
+      <div class="bank-callout-text">
+        <h4>Actualización Continua del Scoring Crediticio (Ciclo MLOps)</h4>
+        <p>
+          Las condiciones económicas y los perfiles de mora evolucionan con el tiempo (<em>Data Drift</em>). Esta consola permite al equipo de analistas ingresar nuevos lotes de solicitudes con datos de pago reales para recalibrar los pesos del clasificador y actualizar el umbral óptimo de corte, realizando una promoción atómica sin interrumpir las operaciones en ventanilla (<em>Zero-Downtime Deployment</em>).
+        </p>
+      </div>
+    </div>
+
     <div style="display: grid; grid-template-columns: 1fr; gap: 2rem;">
       <section class="card">
         <div class="card-header">
           <div>
-            <h2>Centro de Reentrenamiento y Ciclo MLOps</h2>
-            <p class="text-muted" style="font-size: var(--font-size-sm); margin: 0;">
-              Ingesta de lotes censales validados, ajuste del pipeline HistGradientBoosting y promoción con Zero-Downtime.
-            </p>
+            <h2 class="card-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              Centro de Reentrenamiento y Gobernanza de Modelos
+            </h2>
+            <p class="card-subtitle" style="margin: 0;">Ingesta de nuevos datos censales, partición estratificada 80/20 y switch atómico de versión.</p>
           </div>
         </div>
 
@@ -24,7 +37,7 @@ export function renderRetrainCenter(containerId) {
         <div id="retrain-auth-alert" class="hidden" style="background-color: var(--color-warning-bg); border: 1px solid var(--color-warning-border); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
           <div style="display: flex; align-items: center; gap: 0.75rem; color: var(--color-warning-hover); font-size: var(--font-size-sm);">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-            <span><strong>Modo Restringido:</strong> Se requiere autenticación JWT para subir nuevos datasets o disparar reentrenamientos.</span>
+            <span><strong>Control de Seguridad Bancaria:</strong> Se requiere autorización de analista con token JWT para subir nuevos lotes o iniciar el reentrenamiento.</span>
           </div>
           <button type="button" id="btn-login-retrain" class="btn btn-secondary btn-sm">Iniciar Sesión</button>
         </div>
@@ -32,14 +45,17 @@ export function renderRetrainCenter(containerId) {
         <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;">
           <!-- 1. Zona Drag & Drop para Cargar CSV -->
           <div>
-            <label class="form-label">1. Carga de Nuevo Lote de Entrenamiento (.CSV)</label>
+            <label class="form-label">
+              1. Carga de Nuevo Lote de Clientes (.CSV)
+              <span class="badge badge-neutral">Máx 50 MB</span>
+            </label>
             <div id="csv-dropzone" class="dropzone">
               <div class="dropzone-icon">📁</div>
-              <p style="font-weight: var(--font-weight-semibold); margin-bottom: 0.25rem;">
-                Arrastre y suelte su archivo CSV aquí, o <span style="color: var(--color-accent-600); text-decoration: underline;">examine sus archivos</span>
+              <p style="font-weight: var(--font-weight-semibold); margin-bottom: 0.25rem; color: var(--color-primary-800);">
+                Arrastre y suelte su archivo CSV aquí, o <span style="color: var(--color-accent-600); text-decoration: underline;">seleccione desde su equipo</span>
               </p>
-              <p style="font-size: var(--font-size-micro); color: var(--color-primary-500); margin: 0;">
-                Máximo 50 MB. Debe contener las 12 columnas censales y la columna objetivo 'income' (>50K / <=50K).
+              <p style="font-size: var(--font-size-micro); color: var(--color-primary-500); margin: 0; max-width: 30rem; margin: 0 auto;">
+                El archivo debe contener las 12 columnas socioeconómicas y la columna objetivo 'income' (&gt;50K / &lt;=50K) para su validación de esquema bancario.
               </p>
               <input type="file" id="csv-file-input" accept=".csv" class="hidden" />
             </div>
@@ -47,14 +63,16 @@ export function renderRetrainCenter(containerId) {
           </div>
 
           <!-- 2. Botón de Disparo de Re-entrenamiento -->
-          <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1rem; border-top: 1px solid var(--color-primary-200);">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 1.25rem; border-top: 1px solid var(--color-primary-200); flex-wrap: wrap; gap: 1rem;">
             <div>
-              <strong style="color: var(--color-primary-900); font-size: var(--font-size-sm);">Reentrenamiento del Modelo:</strong>
-              <p style="font-size: var(--font-size-micro); color: var(--color-primary-500); margin: 0;">
-                Ejecuta partición estratificada 80/20, calibración de umbral bajo costo 3:1 y switch atómico de versión.
+              <strong style="color: var(--color-primary-900); font-size: var(--font-size-sm); display: block; margin-bottom: 0.2rem;">
+                2. Ejecutar Pipeline de Reentrenamiento Automático:
+              </strong>
+              <p style="font-size: var(--font-size-micro); color: var(--color-primary-500); margin: 0; max-width: 32rem;">
+                Ajusta el algoritmo HistGradientBoosting, calibra el nuevo umbral robusto contra la función de costo 3:1 y registra el nuevo modelo en Supabase.
               </p>
             </div>
-            <button type="button" id="btn-start-retrain" class="btn btn-primary" style="min-width: 13rem;">
+            <button type="button" id="btn-start-retrain" class="btn btn-primary" style="min-width: 14rem;">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
               Iniciar Reentrenamiento
             </button>
@@ -64,7 +82,9 @@ export function renderRetrainCenter(containerId) {
         <!-- 3. Terminal de Streaming en Vivo (WebSocket) -->
         <div style="margin-top: 2rem;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-            <label class="form-label" style="margin: 0;">Consola de Ejecución en Vivo (WebSocket Stream)</label>
+            <label class="form-label" style="margin: 0; font-weight: 600;">
+              Consola de Trazabilidad en Vivo (WebSocket Event Stream)
+            </label>
             <span class="badge badge-neutral" id="ws-status-badge">WebSocket Inactivo</span>
           </div>
 
@@ -73,7 +93,7 @@ export function renderRetrainCenter(containerId) {
           </div>
 
           <div id="ws-terminal" class="log-stream-terminal">
-            <div style="color: #64748b;">[SISTEMA] Esperando evento de inicio de reentrenamiento...</div>
+            <div style="color: #64748b;">[SISTEMA BANCARIO] Esperando inicio del ciclo de reentrenamiento MLOps...</div>
           </div>
         </div>
       </section>
@@ -128,45 +148,54 @@ function setupRetrainEvents(container) {
   // Botón Reentrenar
   btnStartRetrain.addEventListener('click', async () => {
     if (!apiService.isAuthenticated()) {
-      window.showToast?.('Debe iniciar sesión para reentrenar el modelo.', 'error');
+      window.showToast?.('Se requiere autenticación para reentrenar el modelo.', 'error');
       window.openLoginModal?.();
       return;
     }
 
     btnStartRetrain.disabled = true;
-    terminal.innerHTML = `<div style="color: #38bdf8;">[INICIO] Conectando canal WebSocket y preparando reentrenamiento...</div>`;
+    terminal.innerHTML = `<div style="color: #38bdf8;">[INICIO] Estableciendo canal WebSocket seguro y preparando pipeline CRISP-ML(Q)...</div>`;
     progressBar.style.width = '5%';
     wsBadge.textContent = 'Conectando...';
     wsBadge.className = 'badge badge-warning';
 
-    // Abrir WebSocket
+    // Abrir WebSocket para streaming en tiempo real
     apiService.connectWebSocket(
       (data) => {
-        // Al recibir mensaje
-        const logLine = document.createElement('div');
-        const timestamp = new Date().toLocaleTimeString();
-        logLine.innerHTML = `<span style="color: #64748b;">[${timestamp}]</span> <strong style="color: #38bdf8;">[${(data.stage || 'STAGE').toUpperCase()}]:</strong> ${data.message || ''}`;
-        terminal.appendChild(logLine);
-        terminal.scrollTop = terminal.scrollHeight;
+        wsBadge.textContent = 'En Ejecución';
+        wsBadge.className = 'badge badge-positive';
 
-        if (data.progress !== undefined) {
-          progressBar.style.width = `${data.progress}%`;
+        const stage = data.stage || 'proceso';
+        const msg = data.message || JSON.stringify(data);
+        const progress = data.progress_pct || 0;
+
+        if (progress > 0) {
+          progressBar.style.width = `${progress}%`;
         }
 
-        if (data.stage === 'connected') {
-          wsBadge.textContent = 'WS Conectado';
-          wsBadge.className = 'badge badge-positive';
-        } else if (data.stage === 'completed') {
+        const logLine = document.createElement('div');
+        logLine.style.marginBottom = '0.25rem';
+
+        if (stage === 'completed') {
+          logLine.style.color = '#34d399';
+          logLine.innerHTML = `<strong>[EXITO]</strong> ${msg}`;
           progressBar.style.width = '100%';
-          wsBadge.textContent = 'Completado 100%';
-          wsBadge.className = 'badge badge-positive';
+          wsBadge.textContent = 'Completado';
           btnStartRetrain.disabled = false;
-          window.showToast?.('¡Reentrenamiento completado con éxito! Modelo en producción.', 'success');
-        } else if (data.stage === 'error') {
+          window.showToast?.('Reentrenamiento completado con éxito.', 'success');
+        } else if (stage === 'error') {
+          logLine.style.color = '#f87171';
+          logLine.innerHTML = `<strong>[ERROR]</strong> ${msg}`;
           wsBadge.textContent = 'Error';
           wsBadge.className = 'badge badge-negative';
           btnStartRetrain.disabled = false;
+          window.showToast?.(`Fallo en reentrenamiento: ${msg}`, 'error');
+        } else {
+          logLine.innerHTML = `<span style="color: #94a3b8;">[${stage.toUpperCase()}]</span> ${msg}`;
         }
+
+        terminal.appendChild(logLine);
+        terminal.scrollTop = terminal.scrollHeight;
       },
       (err) => {
         wsBadge.textContent = 'Error WS';
@@ -174,9 +203,9 @@ function setupRetrainEvents(container) {
         btnStartRetrain.disabled = false;
       },
       () => {
-        // Al cerrar
-        if (progressBar.style.width !== '100%') {
-          wsBadge.textContent = 'Desconectado';
+        if (wsBadge.textContent !== 'Completado' && wsBadge.textContent !== 'Error') {
+          wsBadge.textContent = 'Canal Cerrado';
+          wsBadge.className = 'badge badge-neutral';
         }
       }
     );
@@ -185,32 +214,39 @@ function setupRetrainEvents(container) {
     try {
       await apiService.triggerRetrain();
     } catch (err) {
-      terminal.innerHTML += `<div style="color: #f87171;">[ERROR]: ${err.message}</div>`;
+      const errLine = document.createElement('div');
+      errLine.style.color = '#f87171';
+      errLine.textContent = `[ERROR DE DISPARO] ${err.message}`;
+      terminal.appendChild(errLine);
       btnStartRetrain.disabled = false;
-      window.showToast?.(`Error al disparar reentrenamiento: ${err.message}`, 'error');
     }
   });
 }
 
 async function handleFileUpload(file, statusEl) {
   if (!file.name.endsWith('.csv')) {
-    window.showToast?.('Solo se admiten archivos en formato .CSV', 'error');
+    statusEl.innerHTML = `<div class="badge badge-negative">El archivo debe tener formato .csv</div>`;
+    statusEl.classList.remove('hidden');
     return;
   }
 
+  statusEl.innerHTML = `<div style="color: var(--color-primary-600);"><span class="spinner"></span> Validando e ingiriendo archivo (${(file.size / (1024 * 1024)).toFixed(2)} MB)...</div>`;
   statusEl.classList.remove('hidden');
-  statusEl.innerHTML = `<span class="spinner" aria-hidden="true"></span> Subiendo y validando ${file.name}...`;
 
   try {
     const res = await apiService.uploadDataset(file);
     statusEl.innerHTML = `
-      <span style="color: var(--color-positive);">
-        ✅ <strong>${res.filename}</strong> cargado con éxito (${res.rows_ingested?.toLocaleString() || 0} filas validadas). ID: ${res.dataset_id}
-      </span>
+      <div style="background-color: var(--color-positive-bg); border: 1px solid var(--color-positive-border); color: var(--color-positive); padding: 0.75rem; border-radius: var(--radius-sm);">
+        ✅ <strong>Lote Ingerido Exitosamente:</strong> Se validaron <strong>${res.rows_ingested || 'todas las'} filas</strong> censales en Supabase (Dataset ID: #${res.dataset_id || 1}).
+      </div>
     `;
-    window.showToast?.(`Dataset ${file.name} listo para reentrenamiento.`, 'success');
+    window.showToast?.('Dataset validado e ingresado a training_datasets', 'success');
   } catch (err) {
-    statusEl.innerHTML = `<span style="color: var(--color-negative);">❌ Error: ${err.message}</span>`;
-    window.showToast?.(`Fallo de subida: ${err.message}`, 'error');
+    statusEl.innerHTML = `
+      <div style="background-color: var(--color-negative-bg); border: 1px solid var(--color-negative-border); color: var(--color-negative); padding: 0.75rem; border-radius: var(--radius-sm);">
+        ❌ <strong>Error en la Ingesta:</strong> ${err.message}
+      </div>
+    `;
+    window.showToast?.(`Error al subir CSV: ${err.message}`, 'error');
   }
 }
