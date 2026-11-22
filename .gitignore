@@ -13,3 +13,6 @@ artifacts/*.db
 !artifacts/model_*.joblib
 *.db
 .DS_Store
+
+# Documentos locales o borradores de video
+docs/video/*.md

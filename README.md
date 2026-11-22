@@ -159,7 +159,7 @@ TALLERSIS4/
 | **Script de Lanzamiento Automático (1 Clic)** | ✅ Completado | Archivo `start_app.ps1` |
 | **Canal CI/CD de Pruebas Automatizadas** | ✅ Completado | `.github/workflows/ci.yml` (42 tests) |
 | **URL del Repositorio Público GitHub** | ✅ Activo y Versionado | Rama `develop` y `feature/frontend-web` |
-| **Video Demostrativo (5 minutos)** | ⏳ Guion listo / Grabación pendiente | Guion en `docs/video/README.md` |
+| **Video Demostrativo (5 minutos)** | ⏳ Grabación pendiente | Enlace a ser provisto por el estudiante |
 
 ---
 
