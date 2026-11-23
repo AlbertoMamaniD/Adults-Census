@@ -50,22 +50,26 @@ os.environ["SUPABASE_DB_URL"] = f"sqlite:///{_test_db_path.as_posix()}"
 
 
 def _cleanup_test_artifacts_on_exit():
-    """Garantiza la eliminación del directorio temporal y restauración del entorno al finalizar el proceso."""
+    """Intenta eliminar el directorio temporal de pruebas y restaura el entorno al finalizar el proceso."""
     try:
         from app.database.connection import engine
         engine.dispose()
     except Exception:
         pass
+
     try:
         _test_artifacts_temp.cleanup()
-    except Exception:
-        pass
-    # Restaurar variables de entorno al finalizar el proceso completo (Qodo Findings 1 y 2)
-    for key, val in _orig_env.items():
-        if val is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = val
+    except Exception as exc:
+        sys.stderr.write(
+            f"[WARNING] No se pudo eliminar completamente el directorio temporal de pruebas '{_test_artifacts_dir}': {exc}\n"
+        )
+    finally:
+        # Restaurar variables de entorno incondicionalmente al finalizar el proceso (Qodo Finding)
+        for key, val in _orig_env.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
 
 
 atexit.register(_cleanup_test_artifacts_on_exit)
