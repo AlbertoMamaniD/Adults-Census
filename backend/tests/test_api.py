@@ -13,7 +13,11 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-# Preservar valores originales del entorno para restauración controlada (Qodo Code Review)
+# Cargar variables de .env antes de capturar el estado original del entorno (Qodo Finding 1)
+from dotenv import load_dotenv
+load_dotenv(BACKEND_DIR.parent / ".env")
+
+# Preservar valores originales del entorno para restauración controlada al salir del proceso
 _orig_env = {
     "ENV": os.environ.get("ENV"),
     "TESTING": os.environ.get("TESTING"),
@@ -46,7 +50,7 @@ os.environ["SUPABASE_DB_URL"] = f"sqlite:///{_test_db_path.as_posix()}"
 
 
 def _cleanup_test_artifacts_on_exit():
-    """Garantiza la eliminación del directorio temporal solo al finalizar el proceso de Python."""
+    """Garantiza la eliminación del directorio temporal y restauración del entorno al finalizar el proceso."""
     try:
         from app.database.connection import engine
         engine.dispose()
@@ -56,6 +60,12 @@ def _cleanup_test_artifacts_on_exit():
         _test_artifacts_temp.cleanup()
     except Exception:
         pass
+    # Restaurar variables de entorno al finalizar el proceso completo (Qodo Findings 1 y 2)
+    for key, val in _orig_env.items():
+        if val is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = val
 
 
 atexit.register(_cleanup_test_artifacts_on_exit)
@@ -149,16 +159,12 @@ class TestRobustBackendAPI(unittest.TestCase):
         except Exception:
             pass
 
-        # 3. Restaurar variables de entorno previas a su estado original
-        for key, val in _orig_env.items():
-            if val is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = val
-
-        # NOTA DE SEGURIDAD: No redirigir settings.ARTIFACTS_DIR al directorio real de producción;
-        # se mantiene aislado para que si otros tests se ejecutan en este mismo proceso nunca
-        # escriban ni muten los artefactos reales de producción.
+        # NOTA DE ARQUITECTURA (Qodo Findings 1 y 2):
+        # No restaurar las variables de aislamiento (ENV, TESTING, SUPABASE_DB_URL, ARTIFACTS_DIR)
+        # en tearDownClass porque el engine en memoria permanece vinculado a la base de datos de pruebas.
+        # Restaurarlas aquí provocaría que settings.DATABASE_URL se desincronice con el engine live,
+        # disparando falsos errores de 'base de datos no aislada' en tests posteriores.
+        # Las variables y la carpeta temporal se restauran limpiamente al finalizar el proceso en atexit.
 
     # =========================================================================
     # 1. PRUEBAS DE SALUD Y ARQUITECTURA
