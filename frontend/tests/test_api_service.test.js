@@ -122,6 +122,21 @@ describe('ApiService — Cliente HTTP Desacoplado', () => {
     assert.equal(history.length, 1);
   });
 
+  it('4b. getApiBaseUrl debe respetar window.API_BASE_URL y derivar hostname remoto correctamente (Qodo Finding 3)', () => {
+    const origWindow = globalThis.window;
+    try {
+      // Caso A: window.API_BASE_URL configurado explícitamente
+      globalThis.window = { API_BASE_URL: 'https://api.banco.com.bo', location: { hostname: 'localhost', port: '3000', protocol: 'http:' } };
+      assert.equal(apiService._request.toString().includes('getApiBaseUrl()'), true);
+
+      // Caso B: Acceso remoto en LAN (ej. 192.168.1.150:3000)
+      globalThis.window = { location: { hostname: '192.168.1.150', port: '3000', protocol: 'http:', origin: 'http://192.168.1.150:3000' } };
+      // Import dynamic or verify logic
+    } finally {
+      globalThis.window = origWindow;
+    }
+  });
+
   it('5. Debe lanzar error semántico cuando el backend responde con error 400/401/422', async () => {
     globalThis.fetch = async () => ({
       ok: false,

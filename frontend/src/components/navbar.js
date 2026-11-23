@@ -79,6 +79,10 @@ export function renderNavbar(containerId) {
       if (confirm('¿Desea cerrar la sesión actual de analista?')) {
         apiService.logout();
         updateAuthBtnState();
+        // Notificar a todos los módulos y componentes para purgar vistas y registros protegidos
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('auth:logout'));
+        }
         window.showToast?.('Sesión cerrada correctamente.', 'success');
       }
     } else {

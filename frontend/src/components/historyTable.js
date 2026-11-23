@@ -15,6 +15,28 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+let activeHistoryRequestId = 0;
+
+export function clearHistoryView(container) {
+  if (!container) return;
+  const unauthBox = container.querySelector('#history-unauth');
+  const tableWrapper = container.querySelector('#history-table-wrapper');
+  const tbody = container.querySelector('#history-tbody');
+  const countLabel = container.querySelector('#history-count-label');
+  const btnPrev = container.querySelector('#btn-prev-page');
+  const btnNext = container.querySelector('#btn-next-page');
+
+  if (unauthBox) unauthBox.classList.remove('hidden');
+  if (tableWrapper) tableWrapper.classList.add('hidden');
+  if (tbody) tbody.innerHTML = '';
+  if (countLabel) countLabel.textContent = 'Acceso protegido por token JWT';
+  if (btnPrev) btnPrev.disabled = true;
+  if (btnNext) btnNext.disabled = true;
+  if (container.dataset) {
+    container.dataset.offset = '0';
+  }
+}
+
 export function renderHistoryTable(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -23,6 +45,14 @@ export function renderHistoryTable(containerId) {
     container.dataset = {};
   }
   container.dataset.offset = '0';
+
+  // Suscribirse a eventos globales de desautenticación para purgar registros de la vista inmediatamente (Qodo Finding 1)
+  if (typeof window !== 'undefined' && !container.__hasLogoutListener) {
+    window.addEventListener('auth:logout', () => {
+      clearHistoryView(container);
+    });
+    container.__hasLogoutListener = true;
+  }
 
   container.innerHTML = `
     <!-- Banner de Cumplimiento Regulatorio -->
@@ -154,17 +184,16 @@ export async function loadHistory(container, limit = 15, offset = null, isSilent
     container.dataset.offset = String(effectiveOffset);
   }
 
+  // Verificar autenticación: si no está autenticado, purgar tabla inmediatamente (Qodo Finding 1)
   if (!apiService.isAuthenticated()) {
-    unauthBox.classList.remove('hidden');
-    tableWrapper.classList.add('hidden');
-    countLabel.textContent = 'Acceso protegido por token JWT';
-    btnPrev.disabled = true;
-    btnNext.disabled = true;
+    clearHistoryView(container);
     return;
   }
 
   unauthBox.classList.add('hidden');
   tableWrapper.classList.remove('hidden');
+
+  const requestId = ++activeHistoryRequestId;
 
   // Si ya hay filas reales renderizadas, realizar la recarga silenciosa en segundo plano
   const hasExistingRows = tbody && tbody.querySelectorAll('tr[data-id]').length > 0;
@@ -180,6 +209,19 @@ export async function loadHistory(container, limit = 15, offset = null, isSilent
     }
 
     const resp = await apiService.getHistory(limit, effectiveOffset);
+
+    // Si el usuario cerró sesión mientras la petición estaba en vuelo, purgar y abortar (Qodo Finding 1)
+    if (!apiService.isAuthenticated()) {
+      clearHistoryView(container);
+      return;
+    }
+
+    // Verificar si la respuesta corresponde a la solicitud activa y página seleccionada (Qodo Finding 4)
+    const currentDatasetOffset = parseInt(container?.dataset?.offset || '0', 10);
+    if (requestId !== activeHistoryRequestId || currentDatasetOffset !== effectiveOffset) {
+      return;
+    }
+
     const items = Array.isArray(resp) ? resp : (resp.items || []);
     const count = items.length;
 
@@ -230,6 +272,11 @@ export async function loadHistory(container, limit = 15, offset = null, isSilent
     btnNext.disabled = count < limit;
 
   } catch (err) {
+    if (requestId !== activeHistoryRequestId) return;
+    if (!apiService.isAuthenticated()) {
+      clearHistoryView(container);
+      return;
+    }
     if (!shouldBeSilent) {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--color-negative);" id="history-err-cell"></td></tr>`;
       const errCell = tbody.querySelector('#history-err-cell');
@@ -239,7 +286,7 @@ export async function loadHistory(container, limit = 15, offset = null, isSilent
       countLabel.textContent = 'Error de conexión';
     }
   } finally {
-    if (btnRefresh) {
+    if (requestId === activeHistoryRequestId && btnRefresh) {
       btnRefresh.classList.remove('btn-refreshing');
     }
   }

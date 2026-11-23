@@ -134,6 +134,14 @@ function setupRetrainEvents(container) {
     authAlert.classList.remove('hidden');
   }
 
+  // Escuchar evento global de logout para actualizar advertencia de autenticación (Qodo Finding 1)
+  if (typeof window !== 'undefined' && !container.__hasLogoutListener) {
+    window.addEventListener('auth:logout', () => {
+      authAlert.classList.remove('hidden');
+    });
+    container.__hasLogoutListener = true;
+  }
+
   let currentUploadedDatasetId = null;
 
   // Eventos de Dropzone
@@ -281,7 +289,7 @@ function setupRetrainEvents(container) {
 }
 
 async function handleFileUpload(file, statusEl, onDatasetUploaded = null) {
-  if (!file.name.endsWith('.csv')) {
+  if (!file || !file.name || !file.name.toLowerCase().endsWith('.csv')) {
     statusEl.innerHTML = `<div class="badge badge-negative">El archivo debe tener formato .csv</div>`;
     statusEl.classList.remove('hidden');
     return;

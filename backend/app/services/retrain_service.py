@@ -86,11 +86,15 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
         if not target_col:
             raise ValueError("Columna objetivo ('income') no encontrada en el dataset de entrenamiento.")
 
-        # Mapeo binario y validación de clases
+        # Mapeo binario y validación estricta de clases (Qodo Finding 5)
         df[target_col] = df[target_col].astype(str).str.strip().str.rstrip(".")
         classes_present = set(df[target_col].unique())
-        if not {">50K", "<=50K"}.issubset(classes_present):
-            raise ValueError(f"El dataset debe contener ambas clases ('>50K' y '<=50K'). Encontradas: {classes_present}")
+        unexpected_classes = classes_present - {">50K", "<=50K"}
+        if unexpected_classes or classes_present != {">50K", "<=50K"}:
+            raise ValueError(
+                f"El dataset contiene etiquetas no permitidas o incompletas en '{target_col}': {sorted(list(classes_present))}. "
+                "Solo se permiten exclusivamente las clases '>50K' y '<=50K'."
+            )
         counts = df[target_col].value_counts()
         if counts.get(">50K", 0) < 5 or counts.get("<=50K", 0) < 5:
             raise ValueError("Cada clase en el dataset debe contener al menos 5 ejemplos representativos para validación estratificada.")
@@ -163,10 +167,8 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
                     min_cost = cost
                     best_threshold = round(t, 2)
 
-        if feasible_thresholds:
-            robust_threshold = float(np.median(feasible_thresholds))
-        else:
-            robust_threshold = float(best_threshold)
+        # Seleccionar estrictamente el umbral óptimo que minimiza el costo asimétrico C = 3*FP + 1*FN (Qodo Finding 6)
+        robust_threshold = float(best_threshold)
 
         # Métricas finales en test con umbral calibrado
         y_final = (y_proba >= robust_threshold).astype(int)
@@ -268,8 +270,9 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
         with open(versioned_meta_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
 
-        # 6. Publicación atómica en disco y recarga en memoria primero (Qodo Finding 5)
-        # Esto asegura que la base de datos no quede adelantada si falla la escritura en disco o la recarga del modelo
+        # 6 y 7. Publicación atómica coordinada y persistencia en Base de Datos (Qodo Finding 2 y 5)
+        # Se adquiere el bloqueo transaccional de base de datos antes de reemplazar el manifiesto y artefactos
+        # para garantizar orden estricto y sincronía entre disco, memoria y base de datos.
         active_manifest = {
             "model_version": new_version,
             "model_file": f"model_{new_version}.joblib",
@@ -282,21 +285,21 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
             json.dump(active_manifest, f, indent=2)
 
         active_version_path = artifacts_dir / "active_version.json"
-        os.replace(tmp_manifest_path, active_version_path)
 
-        # Copias de compatibilidad
-        shutil.copyfile(versioned_model_path, latest_model_path)
-        shutil.copyfile(versioned_meta_path, latest_meta_path)
-
-        # Cargar y verificar en memoria antes de activar en base de datos
-        ml_service.load_active_model(target_version=new_version, raise_on_missing=True)
-
-        # 7. Registrar en Base de Datos de manera transaccional e inmutable
         try:
             with SessionLocal() as db_session:
                 if db_session.bind.dialect.name == "postgresql":
                     db_session.execute(text("SELECT pg_advisory_xact_lock(742198)"))
 
+                # Publicar manifiesto y artefactos bajo el lock
+                os.replace(tmp_manifest_path, active_version_path)
+                shutil.copyfile(versioned_model_path, latest_model_path)
+                shutil.copyfile(versioned_meta_path, latest_meta_path)
+
+                # Cargar y verificar en memoria antes de confirmar transacción
+                ml_service.load_active_model(target_version=new_version, raise_on_missing=True)
+
+                # Actualizar y confirmar en base de datos
                 db_session.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
                 new_run = ModelRun(
                     model_version=new_version,
@@ -313,11 +316,13 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
                         dataset_record.status = "processed"
                 db_session.commit()
                 logger.info(f"Nuevo modelo registrado y activado exitosamente en base de datos: {new_version}")
-        except Exception as db_err:
-            logger.error(f"Error en base de datos al activar versión {new_version}: {db_err}")
-            # Compensación en caso de fallo en DB
+        except Exception as pub_err:
+            logger.error(f"Error coordinado al publicar y registrar versión {new_version}: {pub_err}")
+            if tmp_manifest_path.exists():
+                tmp_manifest_path.unlink()
+            # Restaurar en memoria el modelo previamente activo en base de datos
             ml_service.load_active_model()
-            raise RuntimeError(f"Fallo al registrar model_run en base de datos: {db_err}")
+            raise RuntimeError(f"Fallo al publicar y registrar modelo en producción: {pub_err}")
 
         return {
             "status": "success",

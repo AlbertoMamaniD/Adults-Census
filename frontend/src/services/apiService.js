@@ -3,11 +3,27 @@
  * Gestiona endpoints, cabeceras JWT, control de timeout y reconexión WebSocket.
  */
 
-const API_BASE_URL = typeof window !== 'undefined' && window.location && (window.location.origin.includes(':3000') || window.location.origin.includes(':5500'))
-  ? 'http://127.0.0.1:8000'
-  : (typeof window !== 'undefined' && window.API_BASE_URL ? window.API_BASE_URL : 'http://127.0.0.1:8000');
+export function getApiBaseUrl() {
+  if (typeof window !== 'undefined' && window.API_BASE_URL) {
+    return window.API_BASE_URL;
+  }
+  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+    const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    const host = window.location.hostname;
+    if (window.location.port === '8000') {
+      return window.location.origin;
+    }
+    return `${proto}//${host}:8000`;
+  }
+  return 'http://127.0.0.1:8000';
+}
 
-const WS_BASE_URL = API_BASE_URL.replace(/^http/, 'ws');
+export function getWsBaseUrl() {
+  return getApiBaseUrl().replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+}
+
+export const API_BASE_URL = getApiBaseUrl();
+export const WS_BASE_URL = getWsBaseUrl();
 const DEFAULT_TIMEOUT_MS = 15000;
 
 class ApiService {
@@ -36,7 +52,8 @@ class ApiService {
   }
 
   async _request(endpoint, options = {}) {
-    const url = `${API_BASE_URL}${endpoint}`;
+    const baseUrl = getApiBaseUrl();
+    const url = `${baseUrl}${endpoint}`;
     const headers = {
       'Accept': 'application/json',
       ...(options.headers || {}),
@@ -159,7 +176,7 @@ class ApiService {
       this.ws.close();
     }
 
-    const wsUrl = `${WS_BASE_URL}/ws/retrain`;
+    const wsUrl = `${getWsBaseUrl()}/ws/retrain`;
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {

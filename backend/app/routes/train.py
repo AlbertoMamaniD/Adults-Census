@@ -127,12 +127,19 @@ def _parse_and_validate_csv_sync(destination_path: Path) -> tuple:
     orig_target_col = norm_col_map[target_key]
     cleaned_target = df[orig_target_col].astype(str).str.strip().str.rstrip(".")
     classes_present = set(cleaned_target.unique())
-    if not {">50K", "<=50K"}.issubset(classes_present):
+    unexpected_classes = classes_present - {">50K", "<=50K"}
+    if unexpected_classes or classes_present != {">50K", "<=50K"}:
         if destination_path.exists():
             destination_path.unlink()
+        detail_msg = (
+            f"La columna objetivo '{orig_target_col}' debe contener ambas clases ('>50K' y '<=50K'). "
+            f"Encontradas: {sorted(list(classes_present))}."
+        )
+        if unexpected_classes:
+            detail_msg += f" Contiene etiquetas no permitidas: {sorted(list(unexpected_classes))}."
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"La columna objetivo '{orig_target_col}' debe contener ambas clases ('>50K' y '<=50K'). Encontradas: {sorted(list(classes_present))}",
+            detail=detail_msg,
         )
 
     counts = cleaned_target.value_counts()

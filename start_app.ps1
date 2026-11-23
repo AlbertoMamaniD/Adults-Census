@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # START_APP.PS1 — Lanzador de 1 Clic para Backend y Frontend
 # Precalificación Crediticia Automatizada (CRISP-ML(Q))
 # ==============================================================================
@@ -9,6 +9,7 @@ Write-Host " UCB San Pablo - Trabajo Final de Grado" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $ROOT_DIR = $PSScriptRoot
+$EscapedPythonExe = "$ROOT_DIR\.venv\Scripts\python.exe".Replace("'", "''")
 
 # 0. Asegurar entorno virtual Python si es primera ejecución tras clonar
 $PythonExe = "$ROOT_DIR\.venv\Scripts\python.exe"
@@ -16,19 +17,19 @@ if (-not (Test-Path $PythonExe)) {
     Write-Host "[SETUP] Primera ejecución detectada: Creando entorno virtual .venv..." -ForegroundColor Cyan
     python -m venv "$ROOT_DIR\.venv"
     Write-Host "[SETUP] Instalando dependencias de producción..." -ForegroundColor Cyan
-    & "$ROOT_DIR\.venv\Scripts\python.exe" -m pip install --upgrade pip
-    & "$ROOT_DIR\.venv\Scripts\python.exe" -m pip install -r "$ROOT_DIR\requirements.txt"
+    & "$PythonExe" -m pip install --upgrade pip
+    & "$PythonExe" -m pip install -r "$ROOT_DIR\requirements.txt"
 }
 
-# 1. Iniciar Backend FastAPI en una ventana independiente
+# 1. Iniciar Backend FastAPI en una ventana independiente con directorio de trabajo explícito y rutas escapadas (Qodo Finding 7)
 Write-Host "[1/3] Lanzando Backend API REST (FastAPI) en http://127.0.0.1:8000..." -ForegroundColor Yellow
-$BackendCmd = "cd '$ROOT_DIR\backend'; & '$ROOT_DIR\.venv\Scripts\python.exe' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
-Start-Process powershell -ArgumentList "-NoExit", "-Command", $BackendCmd
+$BackendCmd = "& '$EscapedPythonExe' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
+Start-Process powershell -WorkingDirectory "$ROOT_DIR\backend" -ArgumentList "-NoExit", "-Command", $BackendCmd
 
-# 2. Iniciar Frontend Web en una ventana independiente
+# 2. Iniciar Frontend Web en una ventana independiente con directorio de trabajo explícito
 Write-Host "[2/3] Lanzando Frontend Web en http://localhost:3000..." -ForegroundColor Yellow
-$FrontendCmd = "cd '$ROOT_DIR\frontend'; python -m http.server 3000"
-Start-Process powershell -ArgumentList "-NoExit", "-Command", $FrontendCmd
+$FrontendCmd = "python -m http.server 3000"
+Start-Process powershell -WorkingDirectory "$ROOT_DIR\frontend" -ArgumentList "-NoExit", "-Command", $FrontendCmd
 
 # 3. Esperar inicialización y abrir navegador automáticamente
 Start-Sleep -Seconds 2

@@ -418,6 +418,23 @@ class TestRobustBackendAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("debe contener ambas clases", response.json()["detail"])
 
+    def test_17c_upload_dataset_reject_spurious_labels(self):
+        """Rechazo con 400 si el CSV contiene etiquetas espurias o no autorizadas (Qodo Finding 5)."""
+        csv_header = "age,workclass,education_num,marital_status,occupation,relationship,race,sex,capital_gain,capital_loss,hours_per_week,native_country,income\n"
+        row_low = "30,Private,10,Never-married,Sales,Not-in-family,White,Male,0,0,40,United-States,<=50K\n"
+        row_high = "45,Private,13,Married-civ-spouse,Exec-managerial,Husband,White,Male,5000,0,50,United-States,>50K\n"
+        row_invalid = "35,Private,10,Never-married,Sales,Not-in-family,White,Male,0,0,40,United-States,INVALID_LABEL\n"
+        csv_content = (csv_header + row_low * 5 + row_high * 5 + row_invalid * 2).encode("utf-8")
+        file_obj = io.BytesIO(csv_content)
+
+        response = self.client.post(
+            "/api/v1/train/upload",
+            files={"file": ("spurious_labels.csv", file_obj, "text/csv")},
+            headers=self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("etiquetas no permitidas", response.json()["detail"])
+
     def test_18_upload_dataset_success(self):
         """Carga y validación exitosa de un mini-dataset válido con ambas clases (Finding 7)."""
         csv_header = "age,workclass,education_num,marital_status,occupation,relationship,race,sex,capital_gain,capital_loss,hours_per_week,native_country,income\n"
@@ -451,6 +468,23 @@ class TestRobustBackendAPI(unittest.TestCase):
             headers=self.auth_headers,
         )
         self.assertEqual(response.status_code, 200)
+
+    def test_18c_upload_dataset_uppercase_extension_success(self):
+        """Carga exitosa soportando archivos con extensión en mayúsculas .CSV (Qodo Finding 8)."""
+        csv_header = "age,workclass,education_num,marital_status,occupation,relationship,race,sex,capital_gain,capital_loss,hours_per_week,native_country,income\n"
+        row_low = "30,Private,10,Never-married,Sales,Not-in-family,White,Male,0,0,40,United-States,<=50K\n"
+        row_high = "45,Private,13,Married-civ-spouse,Exec-managerial,Husband,White,Male,5000,0,50,United-States,>50K\n"
+        csv_content = (csv_header + row_low * 6 + row_high * 6).encode("utf-8")
+        valid_file = io.BytesIO(csv_content)
+
+        response = self.client.post(
+            "/api/v1/train/upload",
+            files={"file": ("BATCH_CREDIT_DATA.CSV", valid_file, "text/csv")},
+            headers=self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "success")
         data = response.json()
         self.assertEqual(data["status"], "success")
         self.assertEqual(data["rows_ingested"], 12)

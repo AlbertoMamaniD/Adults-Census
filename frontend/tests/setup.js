@@ -195,12 +195,30 @@ class MockLocalStorage {
 
 // Configurar entorno global antes de que se importen servicios
 export function setupBrowserEnvironment() {
+  const windowListeners = {};
   globalThis.window = {
     location: {
       origin: 'http://127.0.0.1:3000',
+      hostname: '127.0.0.1',
+      port: '3000',
+      protocol: 'http:',
     },
     showToast: (msg, type) => {},
     openLoginModal: () => {},
+    addEventListener: (event, fn) => {
+      if (!windowListeners[event]) windowListeners[event] = [];
+      windowListeners[event].push(fn);
+    },
+    removeEventListener: (event, fn) => {
+      if (windowListeners[event]) {
+        windowListeners[event] = windowListeners[event].filter(h => h !== fn);
+      }
+    },
+    dispatchEvent: (event) => {
+      const type = typeof event === 'string' ? event : event.type;
+      const handlers = windowListeners[type] || [];
+      handlers.forEach(h => h(event));
+    },
   };
 
   globalThis.document = new MockDocument();

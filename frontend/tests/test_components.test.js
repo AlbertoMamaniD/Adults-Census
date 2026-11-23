@@ -165,4 +165,24 @@ describe('Componentes del Frontend — Pruebas de Renderizado e Inyección DOM',
       apiService.getMetrics = originalGetMetrics;
     }
   });
+
+  it('8. clearHistoryView debe purgar registros y restaurar estado no autenticado (Qodo Finding 1)', () => {
+    const root = new MockElement('section', 'tab-history');
+    globalThis.document._registerElement(root);
+    renderHistoryTable('tab-history');
+
+    const tbody = root.querySelector('#history-tbody');
+    tbody.innerHTML = '<tr data-id="1"><td>Registro confidencial</td></tr>';
+    const unauth = root.querySelector('#history-unauth');
+    const tableWrapper = root.querySelector('#history-table-wrapper');
+    unauth.classList.add('hidden');
+    tableWrapper.classList.remove('hidden');
+
+    // Simular evento global de logout
+    globalThis.window.dispatchEvent(new Event('auth:logout'));
+
+    assert.equal(tbody.innerHTML, '');
+    assert.equal(unauth.classList.contains('hidden'), false);
+    assert.equal(tableWrapper.classList.contains('hidden'), true);
+  });
 });
