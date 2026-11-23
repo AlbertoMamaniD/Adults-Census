@@ -139,12 +139,12 @@ export async function loadHistory(container, limit = 15, offset = 0) {
   try {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem;">Cargando registros desde Supabase...</td></tr>`;
     const resp = await apiService.getHistory(limit, offset);
-    const items = resp.items || [];
-    const total = resp.total || 0;
+    const items = Array.isArray(resp) ? resp : (resp.items || []);
+    const count = items.length;
 
     if (items.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--color-primary-500);">No se encontraron solicitudes registradas en este rango.</td></tr>`;
-      countLabel.textContent = `Total: ${total} registros`;
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2.5rem; color: var(--color-primary-600); font-size: var(--font-size-body);">No se encontraron solicitudes registradas en este rango.</td></tr>`;
+      countLabel.textContent = offset === 0 ? 'Sin registros históricos registrados' : `Página vacía (desplazamiento: ${offset})`;
       btnPrev.disabled = offset === 0;
       btnNext.disabled = true;
       return;
@@ -160,27 +160,27 @@ export async function loadHistory(container, limit = 15, offset = 0) {
 
       return `
         <tr>
-          <td><strong style="color: var(--color-accent-600);">#${row.id}</strong></td>
-          <td style="white-space: nowrap; font-size: 0.8125rem;">${dateStr}</td>
-          <td><span class="badge badge-neutral" style="font-size: 0.7rem;">${row.model_version || 'v_latest'}</span></td>
-          <td style="font-size: 0.8125rem;">
-            <strong>${inp.age || '--'} años</strong> | ${inp.occupation || 'N/A'}<br/>
-            <span style="color: var(--color-primary-500); font-size: 0.75rem;">${inp.workclass || 'N/A'} • ${inp.education_num || '--'} años de estudio</span>
+          <td><strong style="color: var(--color-accent-600); font-weight: 700;">#${row.id}</strong></td>
+          <td style="white-space: nowrap; font-size: 0.875rem;">${dateStr}</td>
+          <td><span class="badge badge-neutral" style="font-size: 0.75rem;">${row.model_version || 'v_latest'}</span></td>
+          <td style="font-size: 0.875rem;">
+            <strong style="color: var(--color-primary-900);">${inp.age || '--'} años</strong> | ${inp.occupation || 'N/A'}<br/>
+            <span style="color: var(--color-primary-600); font-size: 0.8125rem;">${inp.workclass || 'N/A'} • ${inp.education_num || '--'} años estudio</span>
           </td>
           <td>
-            <div style="font-weight: 600; color: ${isSolvent ? 'var(--color-positive)' : 'var(--color-negative)'}; font-size: 0.875rem;">
+            <div style="font-weight: 700; color: ${isSolvent ? 'var(--color-positive)' : 'var(--color-negative)'}; font-size: 0.9375rem;">
               ${probPct}%
             </div>
           </td>
           <td><span class="badge ${badgeClass}">${badgeText}</span></td>
-          <td style="font-size: 0.8125rem; color: var(--color-primary-600);">${row.latency_ms?.toFixed(1) || '--'} ms</td>
+          <td style="font-size: 0.875rem; color: var(--color-primary-700); font-weight: 500;">${row.latency_ms?.toFixed(1) || '--'} ms</td>
         </tr>
       `;
     }).join('');
 
-    countLabel.textContent = `Registros ${offset + 1} a ${Math.min(offset + limit, total)} de ${total} en Supabase`;
+    countLabel.textContent = `Mostrando ${offset + 1} a ${offset + count} registros en Supabase`;
     btnPrev.disabled = offset === 0;
-    btnNext.disabled = (offset + limit) >= total;
+    btnNext.disabled = count < limit;
 
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--color-negative);">Error al cargar auditoría: ${err.message}</td></tr>`;

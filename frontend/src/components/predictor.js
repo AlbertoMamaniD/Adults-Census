@@ -297,6 +297,9 @@ function setupPredictorEvents(container) {
     form.hours_per_week.value = 50;
     form.native_country.value = 'United-States';
     window.showToast?.('Cargado perfil de prueba: Solicitante de Alta Solvencia', 'success');
+    if (typeof form.requestSubmit === 'function') {
+      form.requestSubmit();
+    }
   });
 
   // Botón Ejemplo Riesgo
@@ -314,6 +317,9 @@ function setupPredictorEvents(container) {
     form.hours_per_week.value = 25;
     form.native_country.value = 'United-States';
     window.showToast?.('Cargado perfil de prueba: Riesgo de Insolvencia', 'warning');
+    if (typeof form.requestSubmit === 'function') {
+      form.requestSubmit();
+    }
   });
 
   // Envío del formulario
