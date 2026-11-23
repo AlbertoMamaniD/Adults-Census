@@ -151,14 +151,15 @@ TALLERSIS4/
 
 | Entregable | Estado | Ubicación / Referencia |
 |---|:---:|---|
-| **Código Fuente del Servicio de IA** | ✅ En desarrollo | Carpeta `backend/` |
-| **Código Fuente de la Aplicación Web Cliente** | ✅ En desarrollo | Carpeta `frontend/` |
-| **Diagrama de BD y Script SQL** | ✅ Planificado | Carpeta `db/schema.sql` y `db/README.md` |
-| **Documento Swagger de la API** | ✅ Integrado | `docs/swagger/` y endpoint `/docs` de FastAPI |
-| **Video Demostrativo (5 minutos)** | ⏳ Pendiente de grabación | Enlace en `docs/video/` |
-| **Documento Metodología CRISP-ML(Q)** | ✅ Listo / Ampliado | Carpeta `docs/crisp-ml-q/` |
-| **URL del Repositorio Público GitHub** | ⏳ Pendiente de publicación | Configuración de Git y GitHub |
-| **Evidencia de IA de Revisión de PR (Plus)** | ✅ Configurado | Carpeta `docs/evidencia-pr/` |
+| **Código Fuente del Servicio de IA** | ✅ Completado (28 tests OK) | Carpeta `backend/` |
+| **Código Fuente de la Aplicación Web Cliente** | ✅ Completado (14 tests OK) | Carpeta `frontend/` |
+| **Diagrama de BD y Script SQL** | ✅ Completado | Carpeta `db/schema.sql` y `db/README.md` |
+| **Documento Swagger de la API** | ✅ Completado | `docs/swagger/` y endpoint `/docs` de FastAPI |
+| **Evidencia de IA de Revisión de PR (Plus)** | ✅ Completado | Carpeta `docs/evidencia-pr/` (PR #1 y PR #3) |
+| **Script de Lanzamiento Automático (1 Clic)** | ✅ Completado | Archivo `start_app.ps1` |
+| **Canal CI/CD de Pruebas Automatizadas** | ✅ Completado | `.github/workflows/ci.yml` (42 tests) |
+| **URL del Repositorio Público GitHub** | ✅ Activo y Versionado | Rama `develop` y `feature/frontend-web` |
+| **Video Demostrativo (5 minutos)** | ⏳ Grabación pendiente | Enlace a ser provisto por el estudiante |
 
 ---
 
@@ -189,16 +190,34 @@ SUPABASE_DB_URL="postgresql://postgres.PROJECT_ID:PASSWORD@aws-0-REGION.pooler.s
 jupyter notebook notebooks/modelo_crisp_ml.ipynb
 ```
 
-### 4. Levantar el Servicio de IA (Backend)
-```bash
-cd backend
-uvicorn app.main:app --reload --port 8000
+### 4. Lanzamiento Rápido en 1 Clic (Recomendado en Windows)
+Ejecutar el script automatizado para levantar Backend, Frontend y abrir el navegador:
+```powershell
+.\start_app.ps1
 ```
-*Acceso a Swagger UI:* `http://localhost:8000/docs`
 
-### 5. Levantar el Cliente Web (Frontend)
-```bash
+### 5. Lanzamiento Manual
+
+**Terminal 1 — Backend (FastAPI):**
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+*Swagger UI:* [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+**Terminal 2 — Frontend (Web Cliente):**
+```powershell
 cd frontend
-# Iniciar servidor local
-npm run dev # o python -m http.server según la tecnología elegida
+python -m http.server 3000
+```
+*Aplicación Web:* [http://localhost:3000](http://localhost:3000)
+
+### 6. Ejecución de Pruebas Automatizadas (42 Tests)
+```powershell
+# Pruebas del Backend (28 tests)
+$env:PYTHONPATH="backend"; .\.venv\Scripts\python.exe -m unittest backend/tests/test_api.py
+
+# Pruebas del Frontend (14 tests)
+node --test frontend/tests/test_state_service.test.js frontend/tests/test_api_service.test.js frontend/tests/test_components.test.js
+```
 ```

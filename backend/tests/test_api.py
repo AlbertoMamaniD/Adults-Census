@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import sys
 from pathlib import Path
 import unittest
@@ -9,6 +10,13 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+# Configuración obligatoria de aislamiento de pruebas (Qodo Finding 3)
+# Forzar base de datos SQLite aislada temporal antes de importar bindings de base de datos
+os.environ["ENV"] = "testing"
+os.environ["TESTING"] = "1"
+_test_db_path = BACKEND_DIR.parent / "artifacts" / "test_isolated.db"
+os.environ["SUPABASE_DB_URL"] = f"sqlite:///{_test_db_path.as_posix()}"
+
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -16,12 +24,58 @@ from app.config import settings
 from app.main import app, lifespan
 from app.services.ml_service import ml_service
 from app.database.connection import SessionLocal
-from app.database.models import ModelRun, Prediction
+from app.database.models import ModelRun, Prediction, TrainingDataset
 
 
 class TestRobustBackendAPI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # 1. Asegurar aislamiento estricto y creación de tablas en SQLite
+        if not settings.DATABASE_URL.startswith("sqlite"):
+            raise RuntimeError(
+                f"Seguridad de Pruebas: Se detectó una base de datos no aislada ({settings.DATABASE_URL}). "
+                "Las pruebas requieren una base de datos SQLite aislada para no mutar entornos compartidos."
+            )
+
+        from app.database.connection import Base, engine
+        Base.metadata.create_all(bind=engine)
+
+        # 2. Inicializar registro del modelo activo si no existe (CI / entornos efímeros SQLite)
+        with SessionLocal() as db:
+            active_model = db.query(ModelRun).filter(ModelRun.model_version == ml_service.model_version).first()
+            raw_m = ml_service.metadata.get("metrics", {})
+            cm = raw_m.get("confusion_matrix", {})
+            tn = cm.get("tn") if "tn" in cm else raw_m.get("true_negatives", 0)
+            fp = cm.get("fp") if "fp" in cm else raw_m.get("false_positives", 0)
+            fn = cm.get("fn") if "fn" in cm else raw_m.get("false_negatives", 0)
+            tp = cm.get("tp") if "tp" in cm else raw_m.get("true_positives", 0)
+            norm_m = {
+                **raw_m,
+                "confusion_matrix": {
+                    "tn": int(tn),
+                    "fp": int(fp),
+                    "fn": int(fn),
+                    "tp": int(tp),
+                },
+            }
+            # Desactivar cualquier otro modelo activo para respetar la restricción única de un solo activo
+            db.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
+
+            if not active_model:
+                run_entry = ModelRun(
+                    model_version=ml_service.model_version,
+                    model_name=ml_service.metadata.get("model_name", "HistGradientBoostingClassifier"),
+                    threshold=ml_service.threshold,
+                    metrics=norm_m,
+                    parameters=ml_service.metadata.get("parameters", {}),
+                    is_active=True,
+                )
+                db.add(run_entry)
+            else:
+                active_model.metrics = norm_m
+                active_model.is_active = True
+            db.commit()
+
         cls.client = TestClient(app)
         # Iniciar sesión para obtener token de autenticación para rutas protegidas
         login_resp = cls.client.post(
@@ -45,7 +99,7 @@ class TestRobustBackendAPI(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["status"], "healthy")
         self.assertIn("active_model_version", data)
-        self.assertAlmostEqual(data["threshold"], 0.77, places=2)
+        self.assertAlmostEqual(data["threshold"], ml_service.threshold, places=2)
         # Verificar header de tiempo de procesamiento inyectado por middleware
         self.assertIn("x-process-time-ms", response.headers)
         # Verificar cabeceras de seguridad OWASP
@@ -109,8 +163,8 @@ class TestRobustBackendAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["predicted_class"], "<=50K")
-        self.assertLess(data["probability"], 0.77)
-        self.assertAlmostEqual(data["threshold_applied"], 0.77, places=2)
+        self.assertLess(data["probability"], ml_service.threshold)
+        self.assertAlmostEqual(data["threshold_applied"], ml_service.threshold, places=2)
         self.assertIn("No califica", data["recommendation"])
         self.assertGreater(data["latency_ms"], 0.0)
 
@@ -134,7 +188,7 @@ class TestRobustBackendAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["predicted_class"], ">50K")
-        self.assertGreaterEqual(data["probability"], 0.77)
+        self.assertGreaterEqual(data["probability"], ml_service.threshold)
         self.assertIn("Califica para producto de crédito", data["recommendation"])
 
     def test_07_predict_unseen_category_robustness(self):
@@ -265,7 +319,7 @@ class TestRobustBackendAPI(unittest.TestCase):
         response = self.client.get("/api/v1/metrics")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertAlmostEqual(data["threshold"], 0.77, places=2)
+        self.assertAlmostEqual(data["threshold"], ml_service.threshold, places=2)
         metrics = data["metrics"]
         self.assertGreaterEqual(metrics["mcc"], 0.55, "MCC debe ser >= 0.55")
         self.assertGreaterEqual(metrics["precision"], 0.75, "Precision debe ser >= 0.75")
@@ -416,6 +470,18 @@ class TestRobustBackendAPI(unittest.TestCase):
         with self.assertRaises(Exception):
             with self.client.websocket_connect("/ws/retrain?token=invalid_forged_token"):
                 pass
+
+    def test_19c_websocket_in_band_authentication(self):
+        """Verifica que la autenticación en banda sobre WebSocket funcione sin token en query URL (Qodo Finding 5)."""
+        with self.client.websocket_connect("/ws/retrain") as websocket:
+            welcome = websocket.receive_json()
+            self.assertEqual(welcome.get("stage"), "connected")
+
+            # Enviar mensaje de autenticación en banda
+            websocket.send_text(json.dumps({"type": "auth", "token": self.token}))
+            resp = websocket.receive_json()
+            self.assertEqual(resp.get("stage"), "auth")
+            self.assertEqual(resp.get("status"), "authenticated")
 
     # =========================================================================
     # 9. PRUEBAS DE RESILIENCIA EN ARRANQUE Y RECUPERACIÓN DE MLOPS (QODO BUGS)

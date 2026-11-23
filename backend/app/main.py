@@ -103,8 +103,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Aviso de conexión a base de datos en arranque: {e}")
 
-    # 2. Precargar modelo en memoria y asegurar coherencia referencial en base de datos
+    # 2. Precargar modelo en memoria y asegurar coherencia referencial en base de datos (Qodo Finding 8)
     try:
+        bundled_manifest_version = None
+        active_version_file = settings.ARTIFACTS_DIR / "active_version.json"
+        if active_version_file.exists():
+            try:
+                with open(active_version_file, "r", encoding="utf-8") as f:
+                    v_manifest = json.load(f)
+                    bundled_manifest_version = v_manifest.get("model_version")
+            except Exception as mf_err:
+                logger.warning(f"Aviso leyendo active_version.json: {mf_err}")
+
         active_db_version = None
         try:
             with SessionLocal() as db_probe:
@@ -114,8 +124,18 @@ async def lifespan(app: FastAPI):
         except Exception as db_probe_err:
             logger.warning(f"Aviso al consultar versión activa en base de datos: {db_probe_err}")
 
-        # Intentar cargar la versión activa en DB si está presente en disco, o el manifiesto inmutable
-        ml_service.load_active_model(target_version=active_db_version, raise_on_missing=False)
+        # Si el manifiesto empaquetado en disco es más reciente o la DB no tiene activo, priorizarlo
+        target_version = None
+        if bundled_manifest_version:
+            if active_db_version is None or bundled_manifest_version >= active_db_version:
+                target_version = bundled_manifest_version
+            else:
+                target_version = active_db_version
+        else:
+            target_version = active_db_version
+
+        # Intentar cargar la versión objetivo o el manifiesto atómico
+        ml_service.load_active_model(target_version=target_version, raise_on_missing=False)
 
         if ml_service.model is not None:
             logger.info(
@@ -132,13 +152,17 @@ async def lifespan(app: FastAPI):
                     current_active = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
                     current_active_version = current_active.model_version if current_active else None
 
-                    if current_active_version is not None and current_active_version != ml_service.model_version:
+                    if (
+                        current_active_version is not None
+                        and current_active_version != ml_service.model_version
+                        and current_active_version > ml_service.model_version
+                    ):
                         logger.info(
                             f"Detectada versión activa más reciente en base de datos: '{current_active_version}' "
                             f"(versión cargada: '{ml_service.model_version}'). Intentando recargar..."
                         )
-                        active_db_version = current_active_version
-                        ml_service.load_active_model(target_version=active_db_version, raise_on_missing=False)
+                        target_version = current_active_version
+                        ml_service.load_active_model(target_version=target_version, raise_on_missing=False)
 
                     raw_m = ml_service.metadata.get("metrics", {})
                     cm = raw_m.get("confusion_matrix", {})
@@ -171,11 +195,15 @@ async def lifespan(app: FastAPI):
                             db.add(run_entry)
                             db.commit()
                     else:
-                        # Re-verificar bajo lock que no exista un run activo más reciente antes de activar
+                        # Promover y activar el nuevo modelo si es el actual o más reciente
                         active_under_lock = db.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
                         active_version_under_lock = active_under_lock.model_version if active_under_lock else None
 
-                        if active_version_under_lock is None or active_version_under_lock == ml_service.model_version:
+                        if (
+                            active_version_under_lock is None
+                            or active_version_under_lock == ml_service.model_version
+                            or ml_service.model_version >= active_version_under_lock
+                        ):
                             db.query(ModelRun).filter(
                                 ModelRun.is_active == True,
                                 ModelRun.model_version != ml_service.model_version
@@ -194,6 +222,8 @@ async def lifespan(app: FastAPI):
                                 db.add(run_entry)
                             else:
                                 existing_run.is_active = True
+                                existing_run.threshold = ml_service.threshold
+                                existing_run.metrics = normalized_metrics
 
                             db.commit()
                             logger.info(f"Versión de modelo '{ml_service.model_version}' verificada y activa en base de datos.")
