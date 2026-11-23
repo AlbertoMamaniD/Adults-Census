@@ -151,73 +151,70 @@ TALLERSIS4/
 
 | Entregable | Estado | Ubicación / Referencia |
 |---|:---:|---|
-| **Código Fuente del Servicio de IA** | ✅ Completado (28 tests OK) | Carpeta `backend/` |
-| **Código Fuente de la Aplicación Web Cliente** | ✅ Completado (14 tests OK) | Carpeta `frontend/` |
-| **Diagrama de BD y Script SQL** | ✅ Completado | Carpeta `db/schema.sql` y `db/README.md` |
+| **Código Fuente del Servicio de IA** | ✅ Completado (29 tests OK) | Carpeta `backend/` |
+| **Código Fuente de la Aplicación Web Cliente** | ✅ Completado (16 tests OK) | Carpeta `frontend/` |
+| **Diagrama de BD y Script SQL** | ✅ Completado | Carpeta `db/schema.sql`, `db/README.md` y `db/diagrama_bd.png` |
 | **Documento Swagger de la API** | ✅ Completado | `docs/swagger/` y endpoint `/docs` de FastAPI |
-| **Evidencia de IA de Revisión de PR (Plus)** | ✅ Completado | Carpeta `docs/evidencia-pr/` (PR #1 y PR #3) |
-| **Script de Lanzamiento Automático (1 Clic)** | ✅ Completado | Archivo `start_app.ps1` |
-| **Canal CI/CD de Pruebas Automatizadas** | ✅ Completado | `.github/workflows/ci.yml` (42 tests) |
-| **URL del Repositorio Público GitHub** | ✅ Activo y Versionado | Rama `develop` y `feature/frontend-web` |
-| **Video Demostrativo (5 minutos)** | ⏳ Grabación pendiente | Enlace a ser provisto por el estudiante |
+| **Evidencia de IA de Revisión de PR (Plus)** | ✅ Completado | PR #1, PR #3 y PR #4 (auditado por Qodo Merge) |
+| **Script de Lanzamiento Automático (1 Clic)** | ✅ Completado | Archivo `start_app.ps1` (auto-bootstrap de entorno) |
+| **Canal CI/CD de Pruebas Automatizadas** | ✅ Completado | `.github/workflows/ci.yml` (45 tests en verde) |
+| **URL del Repositorio Público GitHub** | ✅ Activo y Versionado | Rama `develop` y `main` |
+| **Video Demostrativo (5 minutos)** | ✅ Guion listo | `docs/video/README.md` |
 
 ---
 
-## ⚙️ 10. Guía de Ejecución Rápida
+## ⚙️ 10. Guía de Ejecución Rápida y Replicabilidad
 
-### 1. Clonar el repositorio y configurar el entorno
-```bash
-git clone <URL_REPOSITORIO>
-cd TALLERSIS4
+Cualquier evaluador o desarrollador puede clonar y ejecutar el sistema completo en su máquina local:
 
-# Crear y activar entorno virtual
-python -m venv .venv
-# En Windows PowerShell:
-.venv\Scripts\Activate.ps1
-
-# Instalar dependencias
-pip install -r requirements.txt
-```
-
-### 2. Configurar variables de entorno
-Copiar `.env.example` a `.env` y configurar la cadena de conexión de Supabase:
-```env
-SUPABASE_DB_URL="postgresql://postgres.PROJECT_ID:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres"
-```
-
-### 3. Ejecutar el Notebook de Entrenamiento
-```bash
-jupyter notebook notebooks/modelo_crisp_ml.ipynb
-```
-
-### 4. Lanzamiento Rápido en 1 Clic (Recomendado en Windows)
-Ejecutar el script automatizado para levantar Backend, Frontend y abrir el navegador:
+### Opción A: Lanzamiento Automático en 1 Clic (Recomendado en Windows)
 ```powershell
+git clone https://github.com/AlbertoMamaniD/Adults-Census.git
+cd Adults-Census
 .\start_app.ps1
 ```
+> **Nota de auto-configuración:** Si no existe `.venv`, el script lo crea e instala las dependencias automáticamente. Si no se configura `.env`, el backend se autoconfigura con SQLite local transparente sin fallar.
 
-### 5. Lanzamiento Manual
+### Opción B: Lanzamiento Manual Paso a Paso
 
-**Terminal 1 — Backend (FastAPI):**
-```powershell
-cd backend
-..\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-*Swagger UI:* [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+1. **Crear y activar entorno virtual:**
+   ```bash
+   python -m venv .venv
+   # Windows PowerShell:
+   .venv\Scripts\Activate.ps1
+   # Linux / macOS:
+   source .venv/bin/activate
 
-**Terminal 2 — Frontend (Web Cliente):**
-```powershell
-cd frontend
-python -m http.server 3000
-```
-*Aplicación Web:* [http://localhost:3000](http://localhost:3000)
+   # Instalar dependencias
+   pip install -r requirements.txt
+   ```
 
-### 6. Ejecución de Pruebas Automatizadas (42 Tests)
-```powershell
-# Pruebas del Backend (28 tests)
-$env:PYTHONPATH="backend"; .\.venv\Scripts\python.exe -m unittest backend/tests/test_api.py
+2. **Variables de entorno (Opcional para Supabase en la nube):**
+   ```bash
+   cp .env.example .env
+   # Si no se define SUPABASE_DB_URL, el backend utiliza SQLite local automáticamente en artifacts/local_database.db.
+   ```
 
-# Pruebas del Frontend (14 tests)
-node --test frontend/tests/test_state_service.test.js frontend/tests/test_api_service.test.js frontend/tests/test_components.test.js
+3. **Iniciar Backend (FastAPI):**
+   ```bash
+   cd backend
+   uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+   ```
+   * *Swagger UI:* [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+4. **Iniciar Frontend (Web Cliente):**
+   ```bash
+   cd frontend
+   python -m http.server 3000
+   ```
+   * *Aplicación Web:* [http://localhost:3000](http://localhost:3000)
+
+### 6. Ejecución de Pruebas Automatizadas (45 Tests - 100% Pass)
+```bash
+# Pruebas del Backend (29 tests)
+python -m unittest backend/tests/test_api.py
+
+# Pruebas del Frontend (16 tests)
+npm --prefix frontend test
 ```
 ```

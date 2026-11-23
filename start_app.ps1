@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # START_APP.PS1 — Lanzador de 1 Clic para Backend y Frontend
 # Precalificación Crediticia Automatizada (CRISP-ML(Q))
 # ==============================================================================
@@ -9,6 +9,16 @@ Write-Host " UCB San Pablo - Trabajo Final de Grado" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $ROOT_DIR = $PSScriptRoot
+
+# 0. Asegurar entorno virtual Python si es primera ejecución tras clonar
+$PythonExe = "$ROOT_DIR\.venv\Scripts\python.exe"
+if (-not (Test-Path $PythonExe)) {
+    Write-Host "[SETUP] Primera ejecución detectada: Creando entorno virtual .venv..." -ForegroundColor Cyan
+    python -m venv "$ROOT_DIR\.venv"
+    Write-Host "[SETUP] Instalando dependencias de producción..." -ForegroundColor Cyan
+    & "$ROOT_DIR\.venv\Scripts\python.exe" -m pip install --upgrade pip
+    & "$ROOT_DIR\.venv\Scripts\python.exe" -m pip install -r "$ROOT_DIR\requirements.txt"
+}
 
 # 1. Iniciar Backend FastAPI en una ventana independiente
 Write-Host "[1/3] Lanzando Backend API REST (FastAPI) en http://127.0.0.1:8000..." -ForegroundColor Yellow
