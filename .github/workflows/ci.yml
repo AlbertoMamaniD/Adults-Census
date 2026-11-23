@@ -26,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-      - name: Ejecutar suite de pruebas Backend (29 tests)
+      - name: Ejecutar suite de pruebas Backend
         env:
           PYTHONPATH: backend
         run: |
@@ -45,6 +45,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Ejecutar suite de pruebas Frontend (16 tests)
+      - name: Ejecutar suite de pruebas Frontend
+        working-directory: frontend
         run: |
-          node --test frontend/tests/test_state_service.test.js frontend/tests/test_api_service.test.js frontend/tests/test_components.test.js
+          npm test
