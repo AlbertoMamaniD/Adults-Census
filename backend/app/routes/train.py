@@ -20,6 +20,145 @@ logger = logging.getLogger("train_routes")
 _is_retraining_lock = asyncio.Lock()
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB límite
 CHUNK_SIZE_BYTES = 1024 * 1024          # 1 MB por chunk de lectura (Finding 11)
+MAX_DATASET_ROWS = 100_000              # Límite máximo de filas para proteger memoria (Qodo Finding 1)
+MAX_DATASET_COLUMNS = 50                # Límite máximo de columnas
+MAX_CATEGORICAL_CARDINALITY = 100       # Límite de cardinalidad por columna categórica (Qodo Finding 1)
+MAX_STORAGE_FILES = 10                  # Retención máxima de datasets en disco (Qodo Finding 7)
+MAX_TOTAL_STORAGE_BYTES = 100 * 1024 * 1024  # 100 MB cuota total de uploads (Qodo Finding 7)
+
+
+def _cleanup_storage_quota(data_dir: Path, db: Session) -> None:
+    """Aplica política de retención y cuota para datasets procesados (Qodo Finding 7)."""
+    try:
+        # 1. Eliminar archivos físicos de datasets ya marcados como 'processed' en DB
+        processed_records = db.query(TrainingDataset).filter(TrainingDataset.status == "processed").all()
+        for rec in processed_records:
+            if rec.notes:
+                p = data_dir / rec.notes
+                if p.exists() and p.name != "adult.csv":
+                    try:
+                        p.unlink()
+                        logger.info(f"Dataset procesado eliminado por política de retención: {p.name}")
+                    except Exception:
+                        pass
+
+        # 2. Controlar cuota total de archivos de carga
+        upload_files = sorted(
+            [f for f in data_dir.glob("upload_*") if f.is_file()],
+            key=lambda x: x.stat().st_mtime,
+        )
+        total_bytes = sum(f.stat().st_size for f in upload_files)
+        while (len(upload_files) > MAX_STORAGE_FILES or total_bytes > MAX_TOTAL_STORAGE_BYTES) and upload_files:
+            oldest = upload_files.pop(0)
+            total_bytes -= oldest.stat().st_size
+            try:
+                oldest.unlink()
+                logger.info(f"Archivo antiguo de carga purgado por cuota de almacenamiento: {oldest.name}")
+            except Exception:
+                pass
+    except Exception as err:
+        logger.warning(f"Aviso durante control de cuota de almacenamiento: {err}")
+
+
+def _parse_and_validate_csv_sync(destination_path: Path) -> tuple:
+    """Valida y analiza síncronamente el archivo CSV fuera del bucle de eventos (Qodo Finding 1 y 14)."""
+    try:
+        df = pd.read_csv(destination_path)
+    except Exception as e:
+        if destination_path.exists():
+            destination_path.unlink()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error de formato al analizar el archivo CSV: {str(e)}",
+        )
+
+    row_count = len(df)
+    if row_count < 10:
+        if destination_path.exists():
+            destination_path.unlink()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El dataset contiene muy pocos registros ({row_count} filas). Se requiere un mínimo de 10 registros para entrenamiento.",
+        )
+
+    if row_count > MAX_DATASET_ROWS:
+        if destination_path.exists():
+            destination_path.unlink()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El dataset contiene {row_count} filas, superando el límite máximo permitido de {MAX_DATASET_ROWS}.",
+        )
+
+    if len(df.columns) > MAX_DATASET_COLUMNS:
+        if destination_path.exists():
+            destination_path.unlink()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El dataset contiene {len(df.columns)} columnas, superando el límite máximo permitido de {MAX_DATASET_COLUMNS}.",
+        )
+
+    # Validar columnas requeridas usando la rutina compartida de normalización
+    norm_col_map = {normalize_column_name(c): c for c in df.columns}
+    required_features = {"age", "workclass", "education_num", "marital_status", "occupation", "relationship", "race", "sex", "hours_per_week"}
+    missing_features = required_features - set(norm_col_map.keys())
+    if missing_features:
+        if destination_path.exists():
+            destination_path.unlink()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El archivo CSV carece de las siguientes columnas requeridas: {sorted(list(missing_features))}",
+        )
+
+    # Validar presencia y distribución de la columna objetivo 'income'
+    target_key = None
+    for candidate in ["income", "class", "target"]:
+        if candidate in norm_col_map:
+            target_key = candidate
+            break
+
+    if not target_key:
+        if destination_path.exists():
+            destination_path.unlink()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo CSV debe incluir obligatoriamente la columna objetivo 'income' (o 'class'/'target') con etiquetas '<=50K' y '>50K'.",
+        )
+
+    orig_target_col = norm_col_map[target_key]
+    cleaned_target = df[orig_target_col].astype(str).str.strip().str.rstrip(".")
+    classes_present = set(cleaned_target.unique())
+    if not {">50K", "<=50K"}.issubset(classes_present):
+        if destination_path.exists():
+            destination_path.unlink()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La columna objetivo '{orig_target_col}' debe contener ambas clases ('>50K' y '<=50K'). Encontradas: {sorted(list(classes_present))}",
+        )
+
+    counts = cleaned_target.value_counts()
+    if counts.get(">50K", 0) < 5 or counts.get("<=50K", 0) < 5:
+        if destination_path.exists():
+            destination_path.unlink()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El dataset debe contener al menos 5 registros de cada clase ('>50K' y '<=50K') para asegurar partición estratificada válida.",
+        )
+
+    # Validar cardinalidad categórica para proteger la memoria de OneHotEncoder (Qodo Finding 1)
+    for col in df.columns:
+        if col == orig_target_col:
+            continue
+        if df[col].dtype == object or str(df[col].dtype).startswith("category"):
+            cardinality = df[col].nunique()
+            if cardinality > MAX_CATEGORICAL_CARDINALITY:
+                if destination_path.exists():
+                    destination_path.unlink()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"La columna categórica '{col}' supera la cardinalidad máxima permitida ({MAX_CATEGORICAL_CARDINALITY} valores únicos). Detectados: {cardinality}.",
+                )
+
+    return df, row_count
 
 
 @router.post(
@@ -92,72 +231,11 @@ async def upload_training_dataset(
             detail="El archivo proporcionado está vacío (0 bytes).",
         )
 
-    try:
-        df = pd.read_csv(destination_path)
-    except Exception as e:
-        if destination_path.exists():
-            destination_path.unlink()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error de formato al analizar el archivo CSV: {str(e)}",
-        )
+    # Análisis y validación de esquema en thread separado para no bloquear event loop (Qodo Finding 14)
+    df, row_count = await asyncio.to_thread(_parse_and_validate_csv_sync, destination_path)
 
-    if len(df) < 10:
-        if destination_path.exists():
-            destination_path.unlink()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"El dataset contiene muy pocos registros ({len(df)} filas). Se requiere un mínimo de 10 registros para entrenamiento.",
-        )
-
-    # Validar columnas requeridas usando la rutina compartida de normalización (Finding 2)
-    norm_col_map = {normalize_column_name(c): c for c in df.columns}
-    required_features = {"age", "workclass", "education_num", "marital_status", "occupation", "relationship", "race", "sex", "hours_per_week"}
-    missing_features = required_features - set(norm_col_map.keys())
-    if missing_features:
-        if destination_path.exists():
-            destination_path.unlink()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"El archivo CSV carece de las siguientes columnas requeridas: {sorted(list(missing_features))}",
-        )
-
-    # Validar presencia y distribución de la columna objetivo 'income' (Finding 7)
-    target_key = None
-    for candidate in ["income", "class", "target"]:
-        if candidate in norm_col_map:
-            target_key = candidate
-            break
-
-    if not target_key:
-        if destination_path.exists():
-            destination_path.unlink()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El archivo CSV debe incluir obligatoriamente la columna objetivo 'income' (o 'class'/'target') con etiquetas '<=50K' y '>50K'.",
-        )
-
-    orig_target_col = norm_col_map[target_key]
-    cleaned_target = df[orig_target_col].astype(str).str.strip().str.rstrip(".")
-    classes_present = set(cleaned_target.unique())
-    if not {">50K", "<=50K"}.issubset(classes_present):
-        if destination_path.exists():
-            destination_path.unlink()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"La columna objetivo '{orig_target_col}' debe contener ambas clases ('>50K' y '<=50K'). Encontradas: {sorted(list(classes_present))}",
-        )
-
-    counts = cleaned_target.value_counts()
-    if counts.get(">50K", 0) < 5 or counts.get("<=50K", 0) < 5:
-        if destination_path.exists():
-            destination_path.unlink()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El dataset debe contener al menos 5 registros de cada clase ('>50K' y '<=50K') para asegurar partición estratificada válida.",
-        )
-
-    row_count = len(df)
+    # Control de cuota y retención de almacenamiento (Qodo Finding 7)
+    await asyncio.to_thread(_cleanup_storage_quota, data_dir, db)
 
     # Registrar en base de datos con nombre de almacenamiento único (Finding 2)
     db_record = TrainingDataset(
@@ -289,7 +367,22 @@ async def trigger_retrain(
             await emit_progress("evaluating", 75, "Evaluando métricas y optimizando umbral robusto de costo...")
             await asyncio.sleep(0.1)
 
-            # 5. Finalización
+            # 5. Finalización con control de calidad (Qodo Finding 3)
+            if result.get("status") == "rejected":
+                await emit_progress(
+                    "rejected",
+                    100,
+                    result["message"],
+                    payload=result,
+                )
+                return RetrainResponse(
+                    status="rejected",
+                    message=result["message"],
+                    new_model_version=result["new_model_version"],
+                    updated_metrics=result["metrics"],
+                    threshold=result.get("threshold", ml_service.threshold),
+                )
+
             await emit_progress(
                 "completed",
                 100,

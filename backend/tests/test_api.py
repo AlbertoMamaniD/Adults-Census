@@ -123,7 +123,7 @@ class TestRobustBackendAPI(unittest.TestCase):
         self.assertEqual(data["username"], settings.ADMIN_USERNAME)
 
     def test_03_auth_login_invalid_password(self):
-        """Rechazo con 401 por credencial incorrecta."""
+        """Rechazo con 401 por credencial incorrecta con cabecera WWW-Authenticate (Qodo Finding 9)."""
         response = self.client.post(
             "/api/v1/auth/login",
             json={"username": settings.ADMIN_USERNAME, "password": "incorrect_test_credential_val"},
@@ -131,6 +131,7 @@ class TestRobustBackendAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         data = response.json()
         self.assertIn("detail", data)
+        self.assertIn("bearer", response.headers.get("www-authenticate", "").lower())
 
     def test_04_auth_login_invalid_username(self):
         """Rechazo con 401 por cuenta inexistente."""
@@ -139,6 +140,15 @@ class TestRobustBackendAPI(unittest.TestCase):
             json={"username": "unregistered_test_account", "password": settings.ADMIN_PASSWORD},
         )
         self.assertEqual(response.status_code, 401)
+
+    def test_04b_auth_login_non_ascii_credentials(self):
+        """Verifica que credenciales con caracteres no ASCII ('ñ', tildes) devuelvan 401 sin fallar en 500 (Qodo Finding 15)."""
+        response = self.client.post(
+            "/api/v1/auth/login",
+            json={"username": "usuario_con_ñ_y_tildes", "password": "contraseña_inválida_123"},
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("bearer", response.headers.get("www-authenticate", "").lower())
 
     # =========================================================================
     # 3. PRUEBAS DE INFERENCIA EN TIEMPO REAL Y CASOS DE NEGOCIO
@@ -454,8 +464,8 @@ class TestRobustBackendAPI(unittest.TestCase):
     # 8. PRUEBAS DE COMUNICACIÓN EN TIEMPO REAL (WEBSOCKET) (FINDINGS 1, 8, 12)
     # =========================================================================
     def test_19_websocket_retrain_stream(self):
-        """Verifica el handshake WebSocket, recepción de bienvenida y respuesta a ping."""
-        with self.client.websocket_connect("/ws/retrain") as websocket:
+        """Verifica el handshake WebSocket autenticado con query token, recepción de bienvenida y respuesta a ping (Qodo Finding 11)."""
+        with self.client.websocket_connect(f"/ws/retrain?token={self.token}") as websocket:
             welcome_msg = websocket.receive_json()
             self.assertEqual(welcome_msg["stage"], "connected")
             self.assertIn("Conectado", welcome_msg["message"])
@@ -472,16 +482,15 @@ class TestRobustBackendAPI(unittest.TestCase):
                 pass
 
     def test_19c_websocket_in_band_authentication(self):
-        """Verifica que la autenticación en banda sobre WebSocket funcione sin token en query URL (Qodo Finding 5)."""
+        """Verifica que la autenticación en banda sobre WebSocket funcione sin token en query URL (Qodo Finding 11)."""
         with self.client.websocket_connect("/ws/retrain") as websocket:
-            welcome = websocket.receive_json()
-            self.assertEqual(welcome.get("stage"), "connected")
-
-            # Enviar mensaje de autenticación en banda
+            # Enviar mensaje de autenticación en banda antes del timeout
             websocket.send_text(json.dumps({"type": "auth", "token": self.token}))
             resp = websocket.receive_json()
             self.assertEqual(resp.get("stage"), "auth")
             self.assertEqual(resp.get("status"), "authenticated")
+            welcome = websocket.receive_json()
+            self.assertEqual(welcome.get("stage"), "connected")
 
     # =========================================================================
     # 9. PRUEBAS DE RESILIENCIA EN ARRANQUE Y RECUPERACIÓN DE MLOPS (QODO BUGS)

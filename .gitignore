@@ -3,6 +3,7 @@
 __pycache__/
 .ipynb_checkpoints/
 .env
+artifacts/.jwt_secret
 data/*.csv
 !data/adult.csv
 artifacts/*.joblib

@@ -40,6 +40,17 @@ class WebSocketManager:
                 if self._pending_handshakes > 0:
                     self._pending_handshakes -= 1
 
+    async def register_authenticated(self, websocket: WebSocket) -> bool:
+        """Registra un socket ya autenticado verificando cuota de concurrencia (Qodo Finding 11)."""
+        async with self._lock:
+            if len(self.active_connections) >= self.MAX_CONNECTIONS:
+                logger.warning(f"Límite de conexiones WebSocket alcanzado ({self.MAX_CONNECTIONS}). Rechazando conexión.")
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Límite máximo de conexiones simultáneas alcanzado.")
+                return False
+            self.active_connections.add(websocket)
+            logger.info(f"Cliente WebSocket autenticado registrado. Conexiones activas: {len(self.active_connections)}")
+            return True
+
     def disconnect(self, websocket: WebSocket) -> None:
         self.active_connections.discard(websocket)
         logger.info(f"Cliente WebSocket desconectado. Conexiones activas: {len(self.active_connections)}")

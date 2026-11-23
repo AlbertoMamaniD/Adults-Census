@@ -1,7 +1,7 @@
 {
-  "model_version": "v20261123034404",
-  "model_file": "model_v20261123034404.joblib",
-  "metadata_file": "metadata_v20261123034404.json",
-  "threshold": 0.52,
-  "published_at": "2026-11-23T03:44:06.199668+00:00"
+  "model_version": "v20261117002816",
+  "model_file": "model_v20261117002816.joblib",
+  "metadata_file": "metadata_v20261117002816.json",
+  "threshold": 0.77,
+  "published_at": "2026-11-17T00:32:24Z"
 }

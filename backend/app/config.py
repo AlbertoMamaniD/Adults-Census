@@ -18,18 +18,53 @@ class Settings:
     ARTIFACTS_DIR: Path = BASE_DIR / "artifacts"
     DATA_DIR: Path = BASE_DIR / "data"
     
-    # Seguridad JWT: clave criptográfica leída del entorno o generada efímeramente para desarrollo
-    SECRET_KEY: str = (
-        os.environ.get("JWT_SECRET_KEY")
-        or os.environ.get("SECRET_KEY")
-        or secrets.token_urlsafe(32)
-    )
+    # Seguridad JWT: clave criptográfica leída del entorno o persistida en archivo para desarrollo (Qodo Finding 16)
+    @property
+    def SECRET_KEY(self) -> str:
+        key = os.environ.get("JWT_SECRET_KEY") or os.environ.get("SECRET_KEY")
+        if key:
+            return key
+        if os.environ.get("ENV") in ("production", "prod"):
+            raise RuntimeError("CRÍTICO: JWT_SECRET_KEY debe estar configurado explícitamente en el entorno de producción.")
+        
+        # En desarrollo / local: persistir en archivo para evitar invalidar tokens en reinicios o entre workers
+        secret_file = self.ARTIFACTS_DIR / ".jwt_secret"
+        if secret_file.exists():
+            try:
+                stored = secret_file.read_text(encoding="utf-8").strip()
+                if stored:
+                    return stored
+            except Exception:
+                pass
+        new_secret = secrets.token_urlsafe(32)
+        try:
+            self.ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+            secret_file.write_text(new_secret, encoding="utf-8")
+        except Exception:
+            pass
+        return new_secret
+
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 horas
     
-    # Credenciales de usuario para pruebas y acceso analítico
-    ADMIN_USERNAME: str = os.environ.get("ADMIN_USERNAME") or "analyst_admin"
-    ADMIN_PASSWORD: str = os.environ.get("ADMIN_PASSWORD") or "dev_auth_token"
+    # Credenciales de usuario para acceso analítico (Qodo Finding 4)
+    @property
+    def ADMIN_USERNAME(self) -> str:
+        val = os.environ.get("ADMIN_USERNAME")
+        if val:
+            return val
+        if os.environ.get("ENV") in ("production", "prod"):
+            return ""  # En producción no se permite fallback predeterminado
+        return "analyst_admin"
+
+    @property
+    def ADMIN_PASSWORD(self) -> str:
+        val = os.environ.get("ADMIN_PASSWORD")
+        if val:
+            return val
+        if os.environ.get("ENV") in ("production", "prod"):
+            return ""  # En producción no se permite fallback predeterminado
+        return "dev_auth_token"
     
     # Base de Datos Supabase (PostgreSQL)
     @property

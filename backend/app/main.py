@@ -1,9 +1,10 @@
 from collections import defaultdict
 from contextlib import asynccontextmanager
+import json
 import logging
 import time
 import traceback
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -113,7 +114,7 @@ async def lifespan(app: FastAPI):
                     v_manifest = json.load(f)
                     bundled_manifest_version = v_manifest.get("model_version")
             except Exception as mf_err:
-                logger.warning(f"Aviso leyendo active_version.json: {mf_err}")
+                logger.exception(f"Aviso leyendo active_version.json: {mf_err}")
 
         active_db_version = None
         try:
@@ -357,6 +358,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # 4. Manejador Global de Excepciones HTTP (400, 401, 404, etc.)
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    # Pasar cabeceras originales (ej. WWW-Authenticate en 401) para clientes REST estándar (Qodo Finding 9)
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -365,27 +367,41 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             "detail": exc.detail,
             "path": request.url.path,
         },
+        headers=getattr(exc, "headers", None),
     )
 
 
-# Endpoint de Verificación de Salud
-@app.get("/health", tags=["Salud del Sistema"], status_code=status.HTTP_200_OK, summary="Verificación de salud del servicio")
-@app.get("/api/v1/health", tags=["Salud del Sistema"], status_code=status.HTTP_200_OK, summary="Verificación de salud del servicio (v1)")
-def health_check():
+# Endpoint de Verificación de Salud y Preparación (Readiness)
+@app.get("/health", tags=["Salud del Sistema"], summary="Verificación de salud y preparación del servicio (readiness)")
+@app.get("/api/v1/health", tags=["Salud del Sistema"], summary="Verificación de salud del servicio (v1)")
+def health_check(response: Response):
+    # Distinguir liveness de readiness validando dependencias críticas (Qodo Finding 8)
     db_status = "connected"
+    db_ok = True
     try:
         with engine.connect() as conn:
             pass
     except Exception:
         db_status = "unavailable_or_degraded"
+        db_ok = False
+
+    model_ok = ml_service.model is not None
+
+    if not db_ok or not model_ok:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        overall_status = "unhealthy"
+    else:
+        response.status_code = status.HTTP_200_OK
+        overall_status = "healthy"
 
     return {
-        "status": "healthy",
+        "status": overall_status,
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION,
         "active_model_version": ml_service.model_version,
         "threshold": ml_service.threshold,
         "database": db_status,
+        "model_loaded": model_ok,
     }
 
 
