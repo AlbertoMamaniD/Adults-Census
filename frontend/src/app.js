@@ -6,7 +6,7 @@
 import { renderNavbar, updateAuthBtnState } from './components/navbar.js';
 import { renderPredictor } from './components/predictor.js';
 import { renderMetricsDashboard } from './components/metricsDashboard.js';
-import { renderHistoryTable } from './components/historyTable.js';
+import { renderHistoryTable, loadHistory } from './components/historyTable.js';
 import { renderRetrainCenter } from './components/retrainCenter.js';
 import { stateService } from './services/stateService.js';
 import { apiService } from './services/apiService.js';
@@ -132,7 +132,15 @@ function setupTabRouting() {
     retrain: document.getElementById('tab-retrain'),
   };
 
+  let currentActiveTab = 'predictor';
+
   stateService.subscribe((state) => {
+    // Si la pestaña activa no ha cambiado (ej. polling periódico de salud de fondo), ignorar para evitar parpadeos
+    if (state.activeTab === currentActiveTab) {
+      return;
+    }
+    currentActiveTab = state.activeTab;
+
     Object.keys(tabPanes).forEach((tabKey) => {
       const pane = tabPanes[tabKey];
       if (!pane) return;
@@ -145,9 +153,12 @@ function setupTabRouting() {
       }
     });
 
-    // Refrescos condicionales al entrar a pestaña
+    // Refrescos silenciosos de datos en segundo plano al entrar a la pestaña sin parpadeo de interfaz
     if (state.activeTab === 'history') {
-      renderHistoryTable('tab-history');
+      const histContainer = document.getElementById('tab-history');
+      if (histContainer) {
+        loadHistory(histContainer, 15, 0, true);
+      }
     }
   });
 }

@@ -116,13 +116,14 @@ export function renderHistoryTable(containerId) {
   loadHistory(container, pageLimit, currentOffset);
 }
 
-export async function loadHistory(container, limit = 15, offset = 0) {
+export async function loadHistory(container, limit = 15, offset = 0, isSilent = false) {
   const unauthBox = container.querySelector('#history-unauth');
   const tableWrapper = container.querySelector('#history-table-wrapper');
   const tbody = container.querySelector('#history-tbody');
   const countLabel = container.querySelector('#history-count-label');
   const btnPrev = container.querySelector('#btn-prev-page');
   const btnNext = container.querySelector('#btn-next-page');
+  const btnRefresh = container.querySelector('#btn-refresh-history');
 
   if (!apiService.isAuthenticated()) {
     unauthBox.classList.remove('hidden');
@@ -136,8 +137,19 @@ export async function loadHistory(container, limit = 15, offset = 0) {
   unauthBox.classList.add('hidden');
   tableWrapper.classList.remove('hidden');
 
+  // Si ya hay filas reales renderizadas, realizar la recarga silenciosa en segundo plano
+  const hasExistingRows = tbody && tbody.querySelectorAll('tr[data-id]').length > 0;
+  const shouldBeSilent = isSilent || hasExistingRows;
+
+  if (btnRefresh) {
+    btnRefresh.classList.add('btn-refreshing');
+  }
+
   try {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem;">Cargando registros desde Supabase...</td></tr>`;
+    if (!shouldBeSilent) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem;">Cargando registros desde Supabase...</td></tr>`;
+    }
+
     const resp = await apiService.getHistory(limit, offset);
     const items = Array.isArray(resp) ? resp : (resp.items || []);
     const count = items.length;
@@ -150,40 +162,52 @@ export async function loadHistory(container, limit = 15, offset = 0) {
       return;
     }
 
-    tbody.innerHTML = items.map(row => {
-      const isSolvent = row.predicted_class === '>50K';
-      const badgeClass = isSolvent ? 'badge-positive' : 'badge-negative';
-      const badgeText = isSolvent ? 'CALIFICA (>50K)' : 'NO CALIFICA (<=50K)';
-      const probPct = (row.probability * 100).toFixed(1);
-      const dateStr = new Date(row.created_at).toLocaleString();
-      const inp = row.input_data || {};
+    // Verificar si los IDs actuales son idénticos para evitar re-render innecesario
+    const currentIds = Array.from(tbody.querySelectorAll('tr[data-id]')).map(el => el.getAttribute('data-id')).join(',');
+    const newIds = items.map(r => String(r.id)).join(',');
 
-      return `
-        <tr>
-          <td><strong style="color: var(--color-accent-600); font-weight: 700;">#${row.id}</strong></td>
-          <td style="white-space: nowrap; font-size: 0.875rem;">${dateStr}</td>
-          <td><span class="badge badge-neutral" style="font-size: 0.75rem;">${row.model_version || 'v_latest'}</span></td>
-          <td style="font-size: 0.875rem;">
-            <strong style="color: var(--color-primary-900);">${inp.age || '--'} años</strong> | ${inp.occupation || 'N/A'}<br/>
-            <span style="color: var(--color-primary-600); font-size: 0.8125rem;">${inp.workclass || 'N/A'} • ${inp.education_num || '--'} años estudio</span>
-          </td>
-          <td>
-            <div style="font-weight: 700; color: ${isSolvent ? 'var(--color-positive)' : 'var(--color-negative)'}; font-size: 0.9375rem;">
-              ${probPct}%
-            </div>
-          </td>
-          <td><span class="badge ${badgeClass}">${badgeText}</span></td>
-          <td style="font-size: 0.875rem; color: var(--color-primary-700); font-weight: 500;">${row.latency_ms?.toFixed(1) || '--'} ms</td>
-        </tr>
-      `;
-    }).join('');
+    if (currentIds !== newIds) {
+      tbody.innerHTML = items.map(row => {
+        const isSolvent = row.predicted_class === '>50K';
+        const badgeClass = isSolvent ? 'badge-positive' : 'badge-negative';
+        const badgeText = isSolvent ? 'CALIFICA (>50K)' : 'NO CALIFICA (<=50K)';
+        const probPct = (row.probability * 100).toFixed(1);
+        const dateStr = new Date(row.created_at).toLocaleString();
+        const inp = row.input_data || {};
+
+        return `
+          <tr data-id="${row.id}">
+            <td><strong style="color: var(--color-accent-600); font-weight: 700;">#${row.id}</strong></td>
+            <td style="white-space: nowrap; font-size: 0.875rem;">${dateStr}</td>
+            <td><span class="badge badge-neutral" style="font-size: 0.75rem;">${row.model_version || 'v_latest'}</span></td>
+            <td style="font-size: 0.875rem;">
+              <strong style="color: var(--color-primary-900);">${inp.age || '--'} años</strong> | ${inp.occupation || 'N/A'}<br/>
+              <span style="color: var(--color-primary-600); font-size: 0.8125rem;">${inp.workclass || 'N/A'} • ${inp.education_num || '--'} años estudio</span>
+            </td>
+            <td>
+              <div style="font-weight: 700; color: ${isSolvent ? 'var(--color-positive)' : 'var(--color-negative)'}; font-size: 0.9375rem;">
+                ${probPct}%
+              </div>
+            </td>
+            <td><span class="badge ${badgeClass}">${badgeText}</span></td>
+            <td style="font-size: 0.875rem; color: var(--color-primary-700); font-weight: 500;">${row.latency_ms?.toFixed(1) || '--'} ms</td>
+          </tr>
+        `;
+      }).join('');
+    }
 
     countLabel.textContent = `Mostrando ${offset + 1} a ${offset + count} registros en Supabase`;
     btnPrev.disabled = offset === 0;
     btnNext.disabled = count < limit;
 
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--color-negative);">Error al cargar auditoría: ${err.message}</td></tr>`;
-    countLabel.textContent = 'Error de conexión';
+    if (!shouldBeSilent) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--color-negative);">Error al cargar auditoría: ${err.message}</td></tr>`;
+      countLabel.textContent = 'Error de conexión';
+    }
+  } finally {
+    if (btnRefresh) {
+      btnRefresh.classList.remove('btn-refreshing');
+    }
   }
 }
