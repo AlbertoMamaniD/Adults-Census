@@ -44,6 +44,9 @@ class TestRobustBackendAPI(unittest.TestCase):
                     "tp": int(tp),
                 },
             }
+            # Desactivar cualquier otro modelo activo para respetar la restricción única de un solo activo
+            db.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
+
             if not active_model:
                 run_entry = ModelRun(
                     model_version=ml_service.model_version,
