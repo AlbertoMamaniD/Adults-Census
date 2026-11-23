@@ -1,7 +1,10 @@
+import atexit
 import io
 import json
 import os
 import sys
+import shutil
+import tempfile
 from pathlib import Path
 import unittest
 
@@ -10,13 +13,15 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-# Configuración obligatoria de aislamiento de pruebas (Qodo Code Review)
-# Se aísla tanto el directorio de artefactos como la base de datos en una carpeta temporal dedicada.
-# Esto garantiza que las pruebas de reentrenamiento y publicación nunca muten ni eliminen
-# los artefactos del modelo en producción ni dependan de borrado por fechas.
-import shutil
-import tempfile
+# Preservar valores originales del entorno para restauración controlada (Qodo Code Review)
+_orig_env = {
+    "ENV": os.environ.get("ENV"),
+    "TESTING": os.environ.get("TESTING"),
+    "ARTIFACTS_DIR": os.environ.get("ARTIFACTS_DIR"),
+    "SUPABASE_DB_URL": os.environ.get("SUPABASE_DB_URL"),
+}
 
+# Aislamiento estricto de artefactos y base de datos para pruebas
 _real_artifacts_dir = BACKEND_DIR.parent / "artifacts"
 _test_artifacts_temp = tempfile.TemporaryDirectory(prefix="test_artifacts_")
 _test_artifacts_dir = Path(_test_artifacts_temp.name)
@@ -38,6 +43,22 @@ os.environ["TESTING"] = "1"
 os.environ["ARTIFACTS_DIR"] = str(_test_artifacts_dir)
 _test_db_path = _test_artifacts_dir / "test_isolated.db"
 os.environ["SUPABASE_DB_URL"] = f"sqlite:///{_test_db_path.as_posix()}"
+
+
+def _cleanup_test_artifacts_on_exit():
+    """Garantiza la eliminación del directorio temporal solo al finalizar el proceso de Python."""
+    try:
+        from app.database.connection import engine
+        engine.dispose()
+    except Exception:
+        pass
+    try:
+        _test_artifacts_temp.cleanup()
+    except Exception:
+        pass
+
+
+atexit.register(_cleanup_test_artifacts_on_exit)
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -113,16 +134,31 @@ class TestRobustBackendAPI(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # Limpieza determinista del directorio temporal aislado de artefactos (Qodo Code Review)
-        # Se elimina la carpeta temporal completa sin tocar ni restaurar archivos en producción
-        # y sin realizar eliminaciones frágiles basadas en fechas (*_v20261123*).
+        # 1. Gestionar ciclo de vida del cliente HTTP para no dejar conexiones pendientes (Qodo Code Review)
+        if hasattr(cls, "client") and cls.client:
+            try:
+                cls.client.close()
+            except Exception:
+                pass
+            cls.client = None
+
+        # 2. Cerrar y disponer el pool de conexiones del engine de base de datos
         try:
-            _test_artifacts_temp.cleanup()
+            from app.database.connection import engine
+            engine.dispose()
         except Exception:
             pass
-        finally:
-            os.environ.pop("ARTIFACTS_DIR", None)
-            settings.ARTIFACTS_DIR = _real_artifacts_dir
+
+        # 3. Restaurar variables de entorno previas a su estado original
+        for key, val in _orig_env.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+
+        # NOTA DE SEGURIDAD: No redirigir settings.ARTIFACTS_DIR al directorio real de producción;
+        # se mantiene aislado para que si otros tests se ejecutan en este mismo proceso nunca
+        # escriban ni muten los artefactos reales de producción.
 
     # =========================================================================
     # 1. PRUEBAS DE SALUD Y ARQUITECTURA
