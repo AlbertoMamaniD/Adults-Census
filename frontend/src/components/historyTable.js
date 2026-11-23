@@ -12,7 +12,12 @@ export function renderHistoryTable(containerId) {
   container.innerHTML = `
     <!-- Banner de Cumplimiento Regulatorio -->
     <div class="bank-callout">
-      <div class="bank-callout-icon" aria-hidden="true">🔒</div>
+      <div class="bank-callout-icon" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+      </div>
       <div class="bank-callout-text">
         <h4>Libro de Auditoría y Trazabilidad Transaccional (Supabase PostgreSQL)</h4>
         <p>

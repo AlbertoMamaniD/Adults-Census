@@ -12,7 +12,11 @@ export function renderPredictor(containerId) {
   container.innerHTML = `
     <!-- Banner Informativo para el Oficial de Crédito -->
     <div class="bank-callout">
-      <div class="bank-callout-icon" aria-hidden="true">🏛️</div>
+      <div class="bank-callout-icon" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+      </div>
       <div class="bank-callout-text">
         <h4>Sistema Inteligente de Evaluación y Precalificación de Crédito</h4>
         <p>
@@ -34,10 +38,10 @@ export function renderPredictor(containerId) {
           </div>
           <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
             <button type="button" id="btn-sample-solvent" class="btn btn-secondary btn-sm" title="Cargar perfil de alta solvencia">
-              <span style="color: var(--color-positive);">●</span> Perfil Solvente (>50K)
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-positive)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: middle;"><polyline points="20 6 9 17 4 12"></polyline></svg>Perfil Solvente (>50K)
             </button>
             <button type="button" id="btn-sample-risk" class="btn btn-secondary btn-sm" title="Cargar perfil de riesgo crediticio">
-              <span style="color: var(--color-negative);">●</span> Perfil Riesgo (<=50K)
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-negative)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: middle;"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>Perfil Riesgo (<=50K)
             </button>
           </div>
         </div>
@@ -254,7 +258,7 @@ export function renderPredictor(containerId) {
             <!-- Recomendación de Negocio para el Asesor de Crédito -->
             <div class="recommendation-box">
               <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
-                <span style="font-size: 1rem;">💼</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-accent);"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
                 <strong style="color: var(--color-primary-900); font-size: 0.875rem;">Recomendación para el Oficial de Negocios:</strong>
               </div>
               <span id="recommendation-text" style="line-height: 1.5; color: var(--color-primary-800);">--</span>
@@ -263,7 +267,7 @@ export function renderPredictor(containerId) {
             <!-- Trazabilidad Bancaria -->
             <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-primary-200); display: flex; justify-content: space-between; align-items: center; font-size: var(--font-size-micro); color: var(--color-primary-500);">
               <span>Latencia de cálculo: <strong id="latency-text" style="color: var(--color-primary-800);">-- ms</strong></span>
-              <span>Auditoría: <strong style="color: var(--color-positive);">Persistido en Supabase DB ✅</strong></span>
+              <span style="display: inline-flex; align-items: center; gap: 0.35rem;">Auditoría: <strong style="color: var(--color-positive); display: inline-flex; align-items: center; gap: 0.25rem;">Persistido en Supabase DB <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></strong></span>
             </div>
           </div>
         </div>

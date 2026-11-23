@@ -12,7 +12,13 @@ export function renderMetricsDashboard(containerId) {
   container.innerHTML = `
     <!-- Banner de Negocio para el Comité de Crédito y Auditoría -->
     <div class="bank-callout">
-      <div class="bank-callout-icon" aria-hidden="true">📊</div>
+      <div class="bank-callout-icon" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"></line>
+          <line x1="12" y1="20" x2="12" y2="4"></line>
+          <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+      </div>
       <div class="bank-callout-text">
         <h4>Panel Ejecutivo de Rendimiento y Mitigación de Riesgo</h4>
         <p>

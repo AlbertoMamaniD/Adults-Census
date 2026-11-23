@@ -12,7 +12,11 @@ export function renderRetrainCenter(containerId) {
   container.innerHTML = `
     <!-- Banner de Negocio MLOps -->
     <div class="bank-callout">
-      <div class="bank-callout-icon" aria-hidden="true">🔄</div>
+      <div class="bank-callout-icon" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+        </svg>
+      </div>
       <div class="bank-callout-text">
         <h4>Actualización Continua del Scoring Crediticio (Ciclo MLOps)</h4>
         <p>
@@ -50,7 +54,13 @@ export function renderRetrainCenter(containerId) {
               <span class="badge badge-neutral">Máx 50 MB</span>
             </label>
             <div id="csv-dropzone" class="dropzone">
-              <div class="dropzone-icon">📁</div>
+              <div class="dropzone-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color: var(--color-accent-600);">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+              </div>
               <p style="font-weight: var(--font-weight-semibold); margin-bottom: 0.25rem; color: var(--color-primary-800);">
                 Arrastre y suelte su archivo CSV aquí, o <span style="color: var(--color-accent-600); text-decoration: underline;">seleccione desde su equipo</span>
               </p>
@@ -236,15 +246,17 @@ async function handleFileUpload(file, statusEl) {
   try {
     const res = await apiService.uploadDataset(file);
     statusEl.innerHTML = `
-      <div style="background-color: var(--color-positive-bg); border: 1px solid var(--color-positive-border); color: var(--color-positive); padding: 0.75rem; border-radius: var(--radius-sm);">
-        ✅ <strong>Lote Ingerido Exitosamente:</strong> Se validaron <strong>${res.rows_ingested || 'todas las'} filas</strong> censales en Supabase (Dataset ID: #${res.dataset_id || 1}).
+      <div style="background-color: var(--color-positive-bg); border: 1px solid var(--color-positive-border); color: var(--color-positive); padding: 0.75rem; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.5rem;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <span><strong>Lote Ingerido Exitosamente:</strong> Se validaron <strong>${res.rows_ingested || 'todas las'} filas</strong> censales en Supabase (Dataset ID: #${res.dataset_id || 1}).</span>
       </div>
     `;
     window.showToast?.('Dataset validado e ingresado a training_datasets', 'success');
   } catch (err) {
     statusEl.innerHTML = `
-      <div style="background-color: var(--color-negative-bg); border: 1px solid var(--color-negative-border); color: var(--color-negative); padding: 0.75rem; border-radius: var(--radius-sm);">
-        ❌ <strong>Error en la Ingesta:</strong> ${err.message}
+      <div style="background-color: var(--color-negative-bg); border: 1px solid var(--color-negative-border); color: var(--color-negative); padding: 0.75rem; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.5rem;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+        <span><strong>Error en la Ingesta:</strong> ${err.message}</span>
       </div>
     `;
     window.showToast?.(`Error al subir CSV: ${err.message}`, 'error');
