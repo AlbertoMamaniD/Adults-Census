@@ -160,19 +160,21 @@ erDiagram
     }
 ```
 
-* **Script DDL y Diagramas:** Disponibles en `db/schema.sql` y `db/README.md`.
+![Diagrama Entidad-Relación](img/diagrama_bd.png)
+
+* **Script DDL y Diagramas:** Disponibles en `db/schema.sql`, `db/README.md` y `docs/img/diagrama_bd.png`.
 * **Garantía de Unicidad:** Índice único parcial condicional (`uq_model_runs_single_active`) que garantiza matemáticamente que solo exista **un único modelo activo** en producción a la vez.
 
 ---
 
 ## 🛡️ 6. Pruebas Automatizadas y Calidad de Código (CI/CD)
 
-El repositorio cuenta con una cobertura integral de **42 pruebas automatizadas** que corren en cada `push` o `pull_request` a través de GitHub Actions (`.github/workflows/ci.yml`):
+El repositorio cuenta con una cobertura integral de **45 pruebas automatizadas** que corren en cada `push` o `pull_request` a través de GitHub Actions (`.github/workflows/ci.yml`):
 
-1. **Suite de Backend (28 tests en Python 3.11):**
-   * Valida salud (`/health`), autenticación JWT (éxito y rechazo 401), inferencia para perfiles solventes e insolventes, resiliencia a categorías desconocidas, validación Pydantic 422, paginación de historial, validación de CSVs y streaming WebSocket.
-2. **Suite de Frontend (14 tests en Node.js 22 con runner nativo):**
-   * Valida cliente HTTP desacoplado (`apiService`), reactividad y suscripciones del gestor de estado (`stateService`) y renderizado correcto de todos los componentes DOM.
+1. **Suite de Backend (29 tests en Python 3.11):**
+   * Valida salud (`/health`), autenticación JWT (éxito y rechazo 401), inferencia para perfiles solventes e insolventes, resiliencia a categorías desconocidas, validación Pydantic 422, paginación de historial, validación de CSVs y streaming WebSocket con autenticación en banda.
+2. **Suite de Frontend (16 tests en Node.js 22 con runner nativo):**
+   * Valida cliente HTTP desacoplado (`apiService`), reactividad y suscripciones del gestor de estado (`stateService`), renderizado correcto de componentes DOM, manejo de métricas legítimas en cero y cálculos dinámicos de matriz de confusión.
 3. **Revisión de Código con Inteligencia Artificial (Qodo Merge / PR-Agent):**
    * Integración de PR-Agent en GitHub. Los Pull Requests cuentan con auditoría automática de diffs, detección de bugs concurrentes y análisis de seguridad documentados en `docs/evidencia-pr/`.
 
