@@ -7,10 +7,10 @@
   /* Paleta Cromática Institucional (Fintech Palette) */
   --color-primary-900: #0f172a; /* Slate 900 */
   --color-primary-800: #1e293b; /* Slate 800 */
-  --color-primary-700: #334155; /* Slate 700 */
-  --color-primary-600: #475569; /* Slate 600 */
-  --color-primary-500: #64748b; /* Slate 500 */
-  --color-primary-200: #e2e8f0; /* Slate 200 - Bordes y Divisores */
+  --color-primary-700: #1e293b; /* Slate 800 (Alta legibilidad) */
+  --color-primary-600: #334155; /* Slate 700 (Mayor contraste) */
+  --color-primary-500: #475569; /* Slate 600 (WCAG AAA accesible) */
+  --color-primary-200: #cbd5e1; /* Slate 300 - Bordes más definidos */
   --color-primary-100: #f1f5f9; /* Slate 100 */
   --color-primary-50:  #f8fafc; /* Slate 50 - Fondo General */
 
@@ -21,22 +21,22 @@
   --color-accent-light: rgba(37, 99, 235, 0.12);
 
   /* Clase Positiva (>50K / Aprobado / Solvente) */
-  --color-positive:       #059669; /* Emerald 600 */
-  --color-positive-hover: #047857; /* Emerald 700 */
+  --color-positive:       #047857; /* Emerald 700 - Alto Contraste */
+  --color-positive-hover: #065f46; /* Emerald 800 */
   --color-positive-bg:    #ecfdf5; /* Emerald 50 */
-  --color-positive-border:#a7f3d0; /* Emerald 200 */
+  --color-positive-border:#6ee7b7; /* Emerald 300 */
 
   /* Clase Negativa (<=50K / No Califica / Riesgo) */
-  --color-negative:       #dc2626; /* Red 600 */
-  --color-negative-hover: #b91c1c; /* Red 700 */
+  --color-negative:       #b91c1c; /* Red 700 - Alto Contraste */
+  --color-negative-hover: #991b1b; /* Red 800 */
   --color-negative-bg:    #fef2f2; /* Red 50 */
-  --color-negative-border:#fecaca; /* Red 200 */
+  --color-negative-border:#fca5a5; /* Red 300 */
 
   /* Advertencias, Alertas y KPIs Secundarios */
-  --color-warning:        #d97706; /* Amber 600 */
-  --color-warning-hover:  #b45309; /* Amber 700 */
+  --color-warning:        #b45309; /* Amber 700 - Alto Contraste */
+  --color-warning-hover:  #92400e; /* Amber 800 */
   --color-warning-bg:     #fffbeb; /* Amber 50 */
-  --color-warning-border: #fde68a; /* Amber 200 */
+  --color-warning-border: #fcd34d; /* Amber 300 */
 
   /* Superficies y Contenedores */
   --surface-canvas:       var(--color-primary-50);
@@ -45,15 +45,15 @@
   --surface-sidebar:      var(--color-primary-900);
   --surface-subtle:       var(--color-primary-100);
 
-  /* Tipografía y Jerarquía */
+  /* Tipografía y Jerarquía Optimizada para Legibilidad */
   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   
-  --font-size-h1: 1.875rem; /* 30px */
-  --font-size-h2: 1.5rem;   /* 24px */
-  --font-size-h3: 1.125rem; /* 18px */
-  --font-size-body: 0.9375rem; /* 15px */
-  --font-size-sm: 0.875rem; /* 14px */
-  --font-size-micro: 0.75rem; /* 12px */
+  --font-size-h1: 2rem;     /* 32px */
+  --font-size-h2: 1.625rem; /* 26px */
+  --font-size-h3: 1.25rem;  /* 20px */
+  --font-size-body: 1rem;   /* 16px - Base de lectura cómoda */
+  --font-size-sm: 0.9375rem; /* 15px */
+  --font-size-micro: 0.8125rem; /* 13px - Microcopy nítido */
 
   --font-weight-regular: 400;
   --font-weight-medium:  500;
