@@ -1,0 +1,83 @@
+/**
+ * VARIABLES.CSS — Sistema de Diseño Fintech para Precalificación Crediticia IA
+ * Cumple con las especificaciones de AGENTS.md, impeccable y W3C CSS Custom Properties.
+ */
+
+:root {
+  /* Paleta Cromática Institucional (Fintech Palette) */
+  --color-primary-900: #0f172a; /* Slate 900 */
+  --color-primary-800: #1e293b; /* Slate 800 */
+  --color-primary-700: #1e293b; /* Slate 800 (Alta legibilidad) */
+  --color-primary-600: #334155; /* Slate 700 (Mayor contraste) */
+  --color-primary-500: #475569; /* Slate 600 (WCAG AAA accesible) */
+  --color-primary-200: #cbd5e1; /* Slate 300 - Bordes más definidos */
+  --color-primary-100: #f1f5f9; /* Slate 100 */
+  --color-primary-50:  #f8fafc; /* Slate 50 - Fondo General */
+
+  /* Acento Interactivo y Acción Principal */
+  --color-accent-600:  #2563eb; /* Blue 600 */
+  --color-accent-700:  #1d4ed8; /* Blue 700 - Hover */
+  --color-accent-50:   #eff6ff; /* Blue 50 */
+  --color-accent-light: rgba(37, 99, 235, 0.12);
+
+  /* Clase Positiva (>50K / Aprobado / Solvente) */
+  --color-positive:       #047857; /* Emerald 700 - Alto Contraste */
+  --color-positive-hover: #065f46; /* Emerald 800 */
+  --color-positive-bg:    #ecfdf5; /* Emerald 50 */
+  --color-positive-border:#6ee7b7; /* Emerald 300 */
+
+  /* Clase Negativa (<=50K / No Califica / Riesgo) */
+  --color-negative:       #b91c1c; /* Red 700 - Alto Contraste */
+  --color-negative-hover: #991b1b; /* Red 800 */
+  --color-negative-bg:    #fef2f2; /* Red 50 */
+  --color-negative-border:#fca5a5; /* Red 300 */
+
+  /* Advertencias, Alertas y KPIs Secundarios */
+  --color-warning:        #b45309; /* Amber 700 - Alto Contraste */
+  --color-warning-hover:  #92400e; /* Amber 800 */
+  --color-warning-bg:     #fffbeb; /* Amber 50 */
+  --color-warning-border: #fcd34d; /* Amber 300 */
+
+  /* Superficies y Contenedores */
+  --surface-canvas:       var(--color-primary-50);
+  --surface-card:         #ffffff;
+  --surface-card-hover:   #fcfdfd;
+  --surface-sidebar:      var(--color-primary-900);
+  --surface-subtle:       var(--color-primary-100);
+
+  /* Tipografía y Jerarquía Optimizada para Legibilidad */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  
+  --font-size-h1: 2rem;     /* 32px */
+  --font-size-h2: 1.625rem; /* 26px */
+  --font-size-h3: 1.25rem;  /* 20px */
+  --font-size-body: 1rem;   /* 16px - Base de lectura cómoda */
+  --font-size-sm: 0.9375rem; /* 15px */
+  --font-size-micro: 0.8125rem; /* 13px - Microcopy nítido */
+
+  --font-weight-regular: 400;
+  --font-weight-medium:  500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:    700;
+
+  /* Elevación y Sombras */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
+  --shadow-card: 0 1px 3px 0 rgba(15, 23, 42, 0.08);
+
+  /* Bordes Redondeados */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* Transiciones y Tiempos */
+  --transition-fast: all 0.15s ease-in-out;
+  --transition-normal: all 0.25s ease-in-out;
+
+  /* Z-Index Jerárquico */
+  --z-nav: 50;
+  --z-modal: 100;
+  --z-toast: 150;
+}

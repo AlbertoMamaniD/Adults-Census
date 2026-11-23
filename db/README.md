@@ -6,41 +6,46 @@ Este directorio contiene el script DDL de creación de la base de datos, el diag
 
 ## 📊 Diagrama Entidad-Relación (ERD)
 
+![Diagrama Entidad-Relación](diagrama_bd.png)
+
+### Especificación Formal en Código Mermaid (Horizontal):
+
 ```mermaid
 erDiagram
+    direction LR
+    training_datasets ||--o{ model_runs : "1 a N"
+    model_runs ||--o{ predictions : "1 a N"
+
+    training_datasets {
+        int id PK
+        string filename
+        string uploaded_at
+        int row_count
+        string status
+        string notes
+    }
+
     model_runs {
         int id PK
-        varchar model_version UK
-        varchar model_name
-        timestamptz trained_at
+        string model_version
+        string model_name
         float threshold
-        jsonb metrics
-        jsonb parameters
+        string metrics
+        string parameters
         boolean is_active
-        timestamptz created_at
+        string trained_at
+        string created_at
     }
 
     predictions {
         int id PK
-        timestamptz created_at
-        varchar model_version
-        jsonb input_data
-        varchar predicted_class
+        string model_version FK
+        string input_data
+        string predicted_class
         float probability
         float latency_ms
+        string created_at
     }
-
-    training_datasets {
-        int id PK
-        varchar filename
-        timestamptz uploaded_at
-        int row_count
-        varchar status
-        text notes
-    }
-
-    model_runs ||--o{ predictions : "registra inferencias con"
-    training_datasets ||--o{ model_runs : "origina version entrenada"
 ```
 
 ---

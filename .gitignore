@@ -3,11 +3,20 @@
 __pycache__/
 .ipynb_checkpoints/
 .env
+artifacts/.jwt_secret
+artifacts/.publish.lock
+*.lock
 data/*.csv
+!data/adult.csv
 artifacts/*.joblib
+!artifacts/model_*.joblib
 artifacts/*.db
 !artifacts/.gitkeep
 !artifacts/*.json
 *.joblib
+!artifacts/model_*.joblib
 *.db
 .DS_Store
+
+# Documentos locales o borradores de video
+docs/video/*.md

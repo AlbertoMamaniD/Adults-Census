@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Sistema Inteligente de Precalificación Crediticia Automatizada basado en la metodología CRISP-ML(Q). Universidad Católica Boliviana San Pablo." />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Precalificación Crediticia IA — MLOps CRISP-ML(Q)</title>
+
+  <!-- Tipografía Inter y Favicon -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Estilos del Sistema de Diseño Fintech -->
+  <link rel="stylesheet" href="./src/styles/variables.css" />
+  <link rel="stylesheet" href="./src/styles/base.css" />
+  <link rel="stylesheet" href="./src/styles/components.css" />
+  <link rel="stylesheet" href="./src/styles/modules.css" />
+</head>
+<body>
+  <!-- 1. Encabezado y Navegación Institucional -->
+  <div id="navbar-root"></div>
+
+  <!-- 2. Contenedor Principal de Módulos (Vistas Reactivas) -->
+  <main class="app-container" id="app-content">
+    <!-- Módulo 1: Formulario de Inferencia y Decisión Crediticia -->
+    <section id="tab-predictor" class="tab-pane active" role="tabpanel" aria-labelledby="tab-predictor-btn"></section>
+
+    <!-- Módulo 2: Monitoreo de Métricas y Matriz de Confusión -->
+    <section id="tab-metrics" class="tab-pane hidden" role="tabpanel" aria-labelledby="tab-metrics-btn"></section>
+
+    <!-- Módulo 3: Historial Auditado en Supabase PostgreSQL -->
+    <section id="tab-history" class="tab-pane hidden" role="tabpanel" aria-labelledby="tab-history-btn"></section>
+
+    <!-- Módulo 4: Centro de Reentrenamiento y WebSocket MLOps -->
+    <section id="tab-retrain" class="tab-pane hidden" role="tabpanel" aria-labelledby="tab-retrain-btn"></section>
+  </main>
+
+  <!-- 3. Modal Accesible de Autenticación de Analista (JWT) -->
+  <div id="login-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="modal-title" class="card-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          Acceso de Analista Financiero
+        </h3>
+        <button type="button" class="btn-close" id="btn-close-modal" aria-label="Cerrar ventana emergente">&times;</button>
+      </div>
+
+      <form id="login-form" novalidate>
+        <div class="modal-body">
+          <div id="login-error-msg" class="badge badge-negative hidden" style="margin-bottom: 1rem; width: 100%; justify-content: center; padding: 0.5rem;" role="alert"></div>
+
+          <div class="form-group">
+            <label for="login-username" class="form-label">Usuario / Identificador</label>
+            <input type="text" id="login-username" class="form-control" placeholder="Ingrese su usuario" required autocomplete="username" />
+          </div>
+
+          <div class="form-group">
+            <label for="login-password" class="form-label">Contraseña</label>
+            <input type="password" id="login-password" class="form-control" placeholder="••••••••••••" required autocomplete="current-password" />
+            <span class="form-hint">Ingrese las credenciales de analista autorizadas para el sistema bancario.</span>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="login-submit-btn">Iniciar Sesión</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 4. Contenedor Flotante de Notificaciones Toast -->
+  <div id="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- 5. Entrada de Lógica Modular ES6+ -->
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

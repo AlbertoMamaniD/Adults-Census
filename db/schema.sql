@@ -34,6 +34,9 @@ COMMENT ON COLUMN model_runs.metrics IS 'Objeto JSONB con métricas de evaluaci�
 COMMENT ON COLUMN model_runs.parameters IS 'Objeto JSONB con los hiperparámetros óptimos seleccionados durante el modelado.';
 COMMENT ON COLUMN model_runs.is_active IS 'Flag booleano que indica cuál es el modelo desplegado actualmente en producción.';
 
+-- Restricción de unicidad: Garantizar que únicamente un solo modelo pueda estar activo simultáneamente
+CREATE UNIQUE INDEX IF NOT EXISTS uq_model_runs_single_active ON model_runs (is_active) WHERE is_active = TRUE;
+
 -- =============================================================================
 -- 2. TABLA: predictions (Historial transaccional de inferencias de la API)
 -- =============================================================================
