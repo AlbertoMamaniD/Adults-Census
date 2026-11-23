@@ -205,6 +205,7 @@ function setupRetrainEvents(container) {
           progressBar.style.width = '100%';
           wsBadge.textContent = 'Completado';
           wsBadge.className = 'badge badge-positive';
+          currentUploadedDatasetId = null; // Reiniciar lote para que futuros reentrenamientos usen el dataset base completo a menos que se suba otro archivo
 
           // Sincronizar en vivo el nuevo modelo y umbral con todos los módulos
           const payload = data.payload || {};
