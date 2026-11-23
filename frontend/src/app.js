@@ -5,7 +5,7 @@
 
 import { renderNavbar, updateAuthBtnState } from './components/navbar.js';
 import { renderPredictor } from './components/predictor.js';
-import { renderMetricsDashboard } from './components/metricsDashboard.js';
+import { renderMetricsDashboard, loadMetricsData } from './components/metricsDashboard.js';
 import { renderHistoryTable, loadHistory } from './components/historyTable.js';
 import { renderRetrainCenter } from './components/retrainCenter.js';
 import { stateService } from './services/stateService.js';
@@ -159,8 +159,23 @@ function setupTabRouting() {
       if (histContainer) {
         loadHistory(histContainer, 15, 0, true);
       }
+    } else if (state.activeTab === 'metrics') {
+      const metricsContainer = document.getElementById('tab-metrics');
+      if (metricsContainer) {
+        loadMetricsData(metricsContainer);
+      }
     }
   });
+
+  // Auto-refresco en segundo plano cada 10 segundos de la auditoría si el usuario está en esa pestaña
+  setInterval(() => {
+    if (stateService.activeTab === 'history' && apiService.isAuthenticated()) {
+      const histContainer = document.getElementById('tab-history');
+      if (histContainer) {
+        loadHistory(histContainer, 15, 0, true);
+      }
+    }
+  }, 10000);
 }
 
 // ==========================================================================

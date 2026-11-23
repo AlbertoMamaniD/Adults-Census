@@ -4,6 +4,7 @@
  */
 
 import { apiService } from '../services/apiService.js';
+import { stateService } from '../services/stateService.js';
 
 export function renderMetricsDashboard(containerId) {
   const container = document.getElementById(containerId);
@@ -179,6 +180,13 @@ export function renderMetricsDashboard(containerId) {
 
   const btnRefresh = container.querySelector('#btn-refresh-metrics');
   btnRefresh.addEventListener('click', () => loadMetricsData(container));
+
+  // Suscribirse a cambios del modelo o activación de pestaña para sincronización en vivo sin F5
+  stateService.subscribe((state) => {
+    if (state.activeTab === 'metrics' || state.activeModel) {
+      loadMetricsData(container);
+    }
+  });
 
   loadMetricsData(container);
 }

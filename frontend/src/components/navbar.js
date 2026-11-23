@@ -86,7 +86,17 @@ export function renderNavbar(containerId) {
     }
   });
 
-  // Comprobar salud periódicamente
+  // Suscribirse al gestor de estado para reflejar cambios de modelo en tiempo real sin F5
+  stateService.subscribe((state) => {
+    const dot = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    if (dot && text) {
+      dot.className = state.systemOnline ? 'status-dot online' : 'status-dot';
+      text.textContent = state.systemOnline ? `Online (${state.activeModel || 'v_latest'})` : 'Backend Offline';
+    }
+  });
+
+  // Comprobar salud periódicamente y al inicio
   checkHealthStatus();
   const healthInterval = setInterval(checkHealthStatus, 15000);
   if (healthInterval && typeof healthInterval.unref === 'function') {
@@ -108,7 +118,7 @@ export function updateAuthBtnState() {
   }
 }
 
-async function checkHealthStatus() {
+export async function checkHealthStatus() {
   const dot = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
   if (!dot || !text) return;

@@ -4,6 +4,8 @@
  */
 
 import { apiService } from '../services/apiService.js';
+import { stateService } from '../services/stateService.js';
+import { loadHistory } from './historyTable.js';
 
 export function renderPredictor(containerId) {
   const container = document.getElementById(containerId);
@@ -282,6 +284,28 @@ function setupPredictorEvents(container) {
   const form = container.querySelector('#prediction-form');
   const btnPredict = container.querySelector('#btn-predict');
 
+  // Sincronizar el badge de modelo y el umbral dinámicamente con el sistema sin requerir F5
+  stateService.subscribe((state) => {
+    const versionEl = container.querySelector('#result-model-version');
+    const threshLabel = container.querySelector('#prob-threshold-label');
+    if (versionEl && state.activeModel) {
+      versionEl.textContent = state.activeModel;
+    }
+    if (threshLabel && state.threshold) {
+      threshLabel.textContent = `Filtro Bancario: ${(state.threshold * 100).toFixed(1)}%`;
+    }
+  });
+
+  // Inicialización de badge y umbral con el estado actual
+  const initVersion = container.querySelector('#result-model-version');
+  const initThresh = container.querySelector('#prob-threshold-label');
+  if (initVersion && stateService.activeModel) {
+    initVersion.textContent = stateService.activeModel;
+  }
+  if (initThresh && stateService.threshold) {
+    initThresh.textContent = `Filtro Bancario: ${(stateService.threshold * 100).toFixed(1)}%`;
+  }
+
   // Botón Ejemplo Solvente
   container.querySelector('#btn-sample-solvent').addEventListener('click', () => {
     form.age.value = 45;
@@ -353,6 +377,16 @@ function setupPredictorEvents(container) {
     try {
       const resp = await apiService.predict(payload);
       displayPredictionResult(resp, container);
+      
+      // Actualizar estado reactivo del sistema en vivo
+      stateService.setSystemStatus(true, resp.model_version, resp.threshold_applied);
+      
+      // Actualizar silenciosamente el historial en segundo plano para que al cambiar de pestaña ya esté disponible
+      const histContainer = document.getElementById('tab-history');
+      if (histContainer) {
+        loadHistory(histContainer, 15, 0, true);
+      }
+      
       window.showToast?.(`Dictamen emitido: ${resp.predicted_class}`, 'success');
     } catch (err) {
       window.showToast?.(`Error en evaluación: ${err.message}`, 'error');
@@ -382,11 +416,12 @@ function displayPredictionResult(res, container) {
 
   const isSolvent = res.predicted_class === '>50K';
   const probPct = (res.probability * 100).toFixed(1);
+  const appliedThreshPct = (res.threshold_applied * 100 || 77.0).toFixed(1);
 
   version.textContent = res.model_version || 'v_latest';
   probPercentage.textContent = `${probPct}%`;
   probBar.style.width = `${Math.min(res.probability * 100, 100)}%`;
-  probThreshold.textContent = `Filtro de Seguridad: ${(res.threshold_applied * 100 || 77.0).toFixed(1)}%`;
+  probThreshold.textContent = `Filtro de Seguridad: ${appliedThreshPct}%`;
   latency.textContent = `${res.latency_ms?.toFixed(1) || '12.0'} ms`;
 
   if (isSolvent) {
@@ -397,7 +432,7 @@ function displayPredictionResult(res, container) {
     subtitle.textContent = 'Perfil solvente apto para colocación de crédito de alto monto';
     probBar.className = 'progress-bar-fill positive';
     recommendation.innerHTML = `
-      <strong>Aprobación Inmediata:</strong> El solicitante supera ampliamente el filtro de solvencia (${probPct}% vs 77% requerido). 
+      <strong>Aprobación Inmediata:</strong> El solicitante supera el filtro de solvencia (${probPct}% vs ${appliedThreshPct}% requerido). 
       Se recomienda ofertar <strong>Línea de Crédito Premium</strong> (Tarjeta Platinum/Black, Crédito Hipotecario o de Inversión) con tasa preferencial. Riesgo de mora estimado: <strong>Muy bajo (&lt; 1%)</strong>.
     `;
   } else {
@@ -408,7 +443,7 @@ function displayPredictionResult(res, container) {
     subtitle.textContent = 'Capacidad económica insuficiente para líneas de alto monto';
     probBar.className = 'progress-bar-fill negative';
     recommendation.innerHTML = `
-      <strong>Denegación Preventiva:</strong> La probabilidad de solvencia (${probPct}%) no alcanza el umbral de seguridad bancaria (77%). 
+      <strong>Denegación Preventiva:</strong> La probabilidad de solvencia (${probPct}%) no alcanza el umbral de seguridad bancaria (${appliedThreshPct}%). 
       Para mitigar el riesgo de mora (penalización 3x por incobrabilidad), se sugiere <strong>no otorgar crédito quirografario</strong> y canalizar al cliente hacia <strong>microcrédito con garantía prendaria/personal</strong> o planes de ahorro programado.
     `;
   }

@@ -31,7 +31,7 @@ class StateService {
   setSystemStatus(online, modelVersion = null, threshold = 0.77) {
     this.systemOnline = online;
     if (modelVersion) this.activeModel = modelVersion;
-    if (threshold) this.threshold = threshold;
+    if (threshold !== undefined && threshold !== null) this.threshold = threshold;
     this.notify();
   }
 }

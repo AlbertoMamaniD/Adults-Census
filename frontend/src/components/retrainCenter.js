@@ -4,6 +4,9 @@
  */
 
 import { apiService } from '../services/apiService.js';
+import { stateService } from '../services/stateService.js';
+import { loadMetricsData } from './metricsDashboard.js';
+import { loadHistory } from './historyTable.js';
 
 export function renderRetrainCenter(containerId) {
   const container = document.getElementById(containerId);
@@ -194,7 +197,26 @@ function setupRetrainEvents(container) {
           progressBar.style.width = '100%';
           wsBadge.textContent = 'Completado';
           btnStartRetrain.disabled = false;
-          window.showToast?.('Reentrenamiento completado con éxito.', 'success');
+
+          // Sincronizar en vivo el nuevo modelo y umbral con todos los módulos
+          const payload = data.payload || {};
+          const newModel = payload.new_model_version;
+          const newThresh = payload.threshold;
+          if (newModel) {
+            stateService.setSystemStatus(true, newModel, newThresh);
+          }
+
+          // Refrescar métricas e historial en segundo plano
+          const metricsPane = document.getElementById('tab-metrics');
+          if (metricsPane) {
+            loadMetricsData(metricsPane);
+          }
+          const histPane = document.getElementById('tab-history');
+          if (histPane) {
+            loadHistory(histPane, 15, 0, true);
+          }
+
+          window.showToast?.('Reentrenamiento completado con éxito. Modelo activado en vivo.', 'success');
         } else if (stage === 'error') {
           logLine.style.color = '#f87171';
           logLine.innerHTML = `<strong>[ERROR]</strong> ${msg}`;
@@ -224,7 +246,14 @@ function setupRetrainEvents(container) {
 
     // Disparar endpoint de reentrenamiento
     try {
-      await apiService.triggerRetrain(currentUploadedDatasetId);
+      const retrainResp = await apiService.triggerRetrain(currentUploadedDatasetId);
+      if (retrainResp && retrainResp.new_model_version) {
+        stateService.setSystemStatus(true, retrainResp.new_model_version, retrainResp.threshold);
+        const metricsPane = document.getElementById('tab-metrics');
+        if (metricsPane) {
+          loadMetricsData(metricsPane);
+        }
+      }
     } catch (err) {
       const errLine = document.createElement('div');
       errLine.style.color = '#f87171';
