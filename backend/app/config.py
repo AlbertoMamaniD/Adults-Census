@@ -15,7 +15,7 @@ class Settings:
     
     # Rutas del repositorio
     REPO_ROOT: Path = BASE_DIR
-    ARTIFACTS_DIR: Path = BASE_DIR / "artifacts"
+    ARTIFACTS_DIR: Path = Path(os.environ["ARTIFACTS_DIR"]) if os.environ.get("ARTIFACTS_DIR") else BASE_DIR / "artifacts"
     DATA_DIR: Path = BASE_DIR / "data"
     
     # Seguridad JWT: clave criptográfica leída del entorno o persistida en archivo para desarrollo (Qodo Finding 16)

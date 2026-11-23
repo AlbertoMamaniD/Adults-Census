@@ -10,11 +10,33 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-# Configuración obligatoria de aislamiento de pruebas (Qodo Finding 3)
-# Forzar base de datos SQLite aislada temporal antes de importar bindings de base de datos
+# Configuración obligatoria de aislamiento de pruebas (Qodo Code Review)
+# Se aísla tanto el directorio de artefactos como la base de datos en una carpeta temporal dedicada.
+# Esto garantiza que las pruebas de reentrenamiento y publicación nunca muten ni eliminen
+# los artefactos del modelo en producción ni dependan de borrado por fechas.
+import shutil
+import tempfile
+
+_real_artifacts_dir = BACKEND_DIR.parent / "artifacts"
+_test_artifacts_temp = tempfile.TemporaryDirectory(prefix="test_artifacts_")
+_test_artifacts_dir = Path(_test_artifacts_temp.name)
+
+# Copiar fixtures mínimos necesarios para que la aplicación inicie con el modelo base
+for fixture_name in [
+    "model_v20261117002816.joblib",
+    "metadata_v20261117002816.json",
+    "active_version.json",
+    "model_latest.joblib",
+    "metadata_latest.json",
+]:
+    src_fixture = _real_artifacts_dir / fixture_name
+    if src_fixture.exists():
+        shutil.copyfile(src_fixture, _test_artifacts_dir / fixture_name)
+
 os.environ["ENV"] = "testing"
 os.environ["TESTING"] = "1"
-_test_db_path = BACKEND_DIR.parent / "artifacts" / "test_isolated.db"
+os.environ["ARTIFACTS_DIR"] = str(_test_artifacts_dir)
+_test_db_path = _test_artifacts_dir / "test_isolated.db"
 os.environ["SUPABASE_DB_URL"] = f"sqlite:///{_test_db_path.as_posix()}"
 
 from fastapi.testclient import TestClient
@@ -91,34 +113,16 @@ class TestRobustBackendAPI(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        import shutil
-        champion_version = "v20261117002816"
-        champion_manifest = {
-            "model_version": champion_version,
-            "model_file": f"model_{champion_version}.joblib",
-            "metadata_file": f"metadata_{champion_version}.json",
-            "threshold": 0.77,
-            "published_at": "2026-11-17T00:32:24Z",
-        }
-        manifest_path = settings.ARTIFACTS_DIR / "active_version.json"
-        with open(manifest_path, "w", encoding="utf-8") as f:
-            json.dump(champion_manifest, f, indent=2)
-
-        champ_model = settings.ARTIFACTS_DIR / f"model_{champion_version}.joblib"
-        champ_meta = settings.ARTIFACTS_DIR / f"metadata_{champion_version}.json"
-        if champ_model.exists():
-            shutil.copyfile(champ_model, settings.ARTIFACTS_DIR / "model_latest.joblib")
-        if champ_meta.exists():
-            shutil.copyfile(champ_meta, settings.ARTIFACTS_DIR / "metadata_latest.json")
-
-        # Purgar cualquier artefacto incidental generado durante las pruebas de reentrenamiento
-        for incidental in settings.ARTIFACTS_DIR.glob("*_v20261123*"):
-            try:
-                incidental.unlink()
-            except Exception:
-                pass
-
-        ml_service.load_active_model(target_version=champion_version, raise_on_missing=False)
+        # Limpieza determinista del directorio temporal aislado de artefactos (Qodo Code Review)
+        # Se elimina la carpeta temporal completa sin tocar ni restaurar archivos en producción
+        # y sin realizar eliminaciones frágiles basadas en fechas (*_v20261123*).
+        try:
+            _test_artifacts_temp.cleanup()
+        except Exception:
+            pass
+        finally:
+            os.environ.pop("ARTIFACTS_DIR", None)
+            settings.ARTIFACTS_DIR = _real_artifacts_dir
 
     # =========================================================================
     # 1. PRUEBAS DE SALUD Y ARQUITECTURA
