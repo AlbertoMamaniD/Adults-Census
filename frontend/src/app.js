@@ -31,10 +31,17 @@ window.showToast = function(message, type = 'info') {
       ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>` 
       : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`;
 
-  toast.innerHTML = `
-    <span style="display: inline-flex; align-items: center; margin-right: 0.5rem;">${iconSvg}</span>
-    <span>${message}</span>
-  `;
+  const iconSpan = document.createElement('span');
+  iconSpan.style.display = 'inline-flex';
+  iconSpan.style.alignItems = 'center';
+  iconSpan.style.marginRight = '0.5rem';
+  iconSpan.innerHTML = iconSvg;
+
+  const msgSpan = document.createElement('span');
+  msgSpan.textContent = String(message);
+
+  toast.appendChild(iconSpan);
+  toast.appendChild(msgSpan);
 
   container.appendChild(toast);
 
@@ -157,7 +164,7 @@ function setupTabRouting() {
     if (state.activeTab === 'history') {
       const histContainer = document.getElementById('tab-history');
       if (histContainer) {
-        loadHistory(histContainer, 15, 0, true);
+        loadHistory(histContainer, 15, null, true);
       }
     } else if (state.activeTab === 'metrics') {
       const metricsContainer = document.getElementById('tab-metrics');
@@ -172,7 +179,7 @@ function setupTabRouting() {
     if (stateService.activeTab === 'history' && apiService.isAuthenticated()) {
       const histContainer = document.getElementById('tab-history');
       if (histContainer) {
-        loadHistory(histContainer, 15, 0, true);
+        loadHistory(histContainer, 15, null, true);
       }
     }
   }, 10000);

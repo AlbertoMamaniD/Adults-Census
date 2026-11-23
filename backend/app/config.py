@@ -34,6 +34,14 @@ class Settings:
     # Base de Datos Supabase (PostgreSQL)
     @property
     def DATABASE_URL(self) -> str:
+        # Modo de prueba: Aislar completamente para evitar mutación en bases de datos compartidas (Qodo Finding 3)
+        if os.environ.get("ENV") == "testing" or os.environ.get("TESTING") == "1":
+            test_url = os.environ.get("TEST_DB_URL") or os.environ.get("SUPABASE_DB_URL", "")
+            if test_url and "sqlite" in test_url.lower():
+                return test_url
+            local_test_db = self.ARTIFACTS_DIR / "test_isolated.db"
+            return f"sqlite:///{local_test_db.as_posix()}"
+
         url = os.environ.get("SUPABASE_DB_URL", "").strip()
         if url:
             if url.startswith("postgres://"):

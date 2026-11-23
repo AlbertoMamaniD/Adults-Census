@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # START_APP.PS1 — Lanzador de 1 Clic para Backend y Frontend
 # Precalificación Crediticia Automatizada (CRISP-ML(Q))
 # ==============================================================================
@@ -29,6 +29,5 @@ Write-Host ""
 Write-Host "¡Sistema levantado con éxito!" -ForegroundColor Green
 Write-Host " - Frontend Web:    http://localhost:3000" -ForegroundColor White
 Write-Host " - Swagger API:     http://127.0.0.1:8000/docs" -ForegroundColor White
-Write-Host " - Usuario Demo:    analyst_admin" -ForegroundColor White
-Write-Host " - Password Demo:   dev_auth_token" -ForegroundColor White
+Write-Host " - Autenticación:   Credenciales configuradas en .env o variables de entorno" -ForegroundColor White
 Write-Host "==========================================================" -ForegroundColor Cyan

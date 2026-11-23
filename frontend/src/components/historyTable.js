@@ -5,9 +5,24 @@
 
 import { apiService } from '../services/apiService.js';
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 export function renderHistoryTable(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
+
+  if (!container.dataset) {
+    container.dataset = {};
+  }
+  container.dataset.offset = '0';
 
   container.innerHTML = `
     <!-- Banner de Cumplimiento Regulatorio -->
@@ -98,25 +113,32 @@ export function renderHistoryTable(containerId) {
   const btnNext = container.querySelector('#btn-next-page');
   const btnLoginHistory = container.querySelector('#btn-login-history');
 
-  btnRefresh.addEventListener('click', () => loadHistory(container, pageLimit, currentOffset));
+  btnRefresh.addEventListener('click', () => {
+    const curOff = parseInt(container.dataset.offset || '0', 10);
+    loadHistory(container, pageLimit, curOff);
+  });
   btnLoginHistory?.addEventListener('click', () => window.openLoginModal?.());
 
   btnPrev.addEventListener('click', () => {
-    if (currentOffset >= pageLimit) {
-      currentOffset -= pageLimit;
-      loadHistory(container, pageLimit, currentOffset);
+    let curOff = parseInt(container.dataset.offset || '0', 10);
+    if (curOff >= pageLimit) {
+      curOff -= pageLimit;
+      container.dataset.offset = String(curOff);
+      loadHistory(container, pageLimit, curOff);
     }
   });
 
   btnNext.addEventListener('click', () => {
-    currentOffset += pageLimit;
-    loadHistory(container, pageLimit, currentOffset);
+    let curOff = parseInt(container.dataset.offset || '0', 10);
+    curOff += pageLimit;
+    container.dataset.offset = String(curOff);
+    loadHistory(container, pageLimit, curOff);
   });
 
-  loadHistory(container, pageLimit, currentOffset);
+  loadHistory(container, pageLimit, 0);
 }
 
-export async function loadHistory(container, limit = 15, offset = 0, isSilent = false) {
+export async function loadHistory(container, limit = 15, offset = null, isSilent = false) {
   const unauthBox = container.querySelector('#history-unauth');
   const tableWrapper = container.querySelector('#history-table-wrapper');
   const tbody = container.querySelector('#history-tbody');
@@ -124,6 +146,13 @@ export async function loadHistory(container, limit = 15, offset = 0, isSilent = 
   const btnPrev = container.querySelector('#btn-prev-page');
   const btnNext = container.querySelector('#btn-next-page');
   const btnRefresh = container.querySelector('#btn-refresh-history');
+
+  // Si no se suministra un offset específico, conservar la página actual del usuario
+  const storedOffset = parseInt(container?.dataset?.offset || '0', 10);
+  const effectiveOffset = (offset !== null && offset !== undefined) ? offset : storedOffset;
+  if (container?.dataset) {
+    container.dataset.offset = String(effectiveOffset);
+  }
 
   if (!apiService.isAuthenticated()) {
     unauthBox.classList.remove('hidden');
@@ -150,14 +179,14 @@ export async function loadHistory(container, limit = 15, offset = 0, isSilent = 
       tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem;">Cargando registros desde Supabase...</td></tr>`;
     }
 
-    const resp = await apiService.getHistory(limit, offset);
+    const resp = await apiService.getHistory(limit, effectiveOffset);
     const items = Array.isArray(resp) ? resp : (resp.items || []);
     const count = items.length;
 
     if (items.length === 0) {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2.5rem; color: var(--color-primary-600); font-size: var(--font-size-body);">No se encontraron solicitudes registradas en este rango.</td></tr>`;
-      countLabel.textContent = offset === 0 ? 'Sin registros históricos registrados' : `Página vacía (desplazamiento: ${offset})`;
-      btnPrev.disabled = offset === 0;
+      countLabel.textContent = effectiveOffset === 0 ? 'Sin registros históricos registrados' : `Página vacía (desplazamiento: ${effectiveOffset})`;
+      btnPrev.disabled = effectiveOffset === 0;
       btnNext.disabled = true;
       return;
     }
@@ -176,33 +205,37 @@ export async function loadHistory(container, limit = 15, offset = 0, isSilent = 
         const inp = row.input_data || {};
 
         return `
-          <tr data-id="${row.id}">
-            <td><strong style="color: var(--color-accent-600); font-weight: 700;">#${row.id}</strong></td>
-            <td style="white-space: nowrap; font-size: 0.875rem;">${dateStr}</td>
-            <td><span class="badge badge-neutral" style="font-size: 0.75rem;">${row.model_version || 'v_latest'}</span></td>
+          <tr data-id="${escapeHtml(row.id)}">
+            <td><strong style="color: var(--color-accent-600); font-weight: 700;">#${escapeHtml(row.id)}</strong></td>
+            <td style="white-space: nowrap; font-size: 0.875rem;">${escapeHtml(dateStr)}</td>
+            <td><span class="badge badge-neutral" style="font-size: 0.75rem;">${escapeHtml(row.model_version || 'v_latest')}</span></td>
             <td style="font-size: 0.875rem;">
-              <strong style="color: var(--color-primary-900);">${inp.age || '--'} años</strong> | ${inp.occupation || 'N/A'}<br/>
-              <span style="color: var(--color-primary-600); font-size: 0.8125rem;">${inp.workclass || 'N/A'} • ${inp.education_num || '--'} años estudio</span>
+              <strong style="color: var(--color-primary-900);">${escapeHtml(inp.age || '--')} años</strong> | ${escapeHtml(inp.occupation || 'N/A')}<br/>
+              <span style="color: var(--color-primary-600); font-size: 0.8125rem;">${escapeHtml(inp.workclass || 'N/A')} • ${escapeHtml(inp.education_num || '--')} años estudio</span>
             </td>
             <td>
               <div style="font-weight: 700; color: ${isSolvent ? 'var(--color-positive)' : 'var(--color-negative)'}; font-size: 0.9375rem;">
-                ${probPct}%
+                ${escapeHtml(probPct)}%
               </div>
             </td>
             <td><span class="badge ${badgeClass}">${badgeText}</span></td>
-            <td style="font-size: 0.875rem; color: var(--color-primary-700); font-weight: 500;">${row.latency_ms?.toFixed(1) || '--'} ms</td>
+            <td style="font-size: 0.875rem; color: var(--color-primary-700); font-weight: 500;">${escapeHtml(row.latency_ms?.toFixed(1) || '--')} ms</td>
           </tr>
         `;
       }).join('');
     }
 
-    countLabel.textContent = `Mostrando ${offset + 1} a ${offset + count} registros en Supabase`;
-    btnPrev.disabled = offset === 0;
+    countLabel.textContent = `Mostrando ${effectiveOffset + 1} a ${effectiveOffset + count} registros en Supabase`;
+    btnPrev.disabled = effectiveOffset === 0;
     btnNext.disabled = count < limit;
 
   } catch (err) {
     if (!shouldBeSilent) {
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--color-negative);">Error al cargar auditoría: ${err.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--color-negative);" id="history-err-cell"></td></tr>`;
+      const errCell = tbody.querySelector('#history-err-cell');
+      if (errCell) {
+        errCell.textContent = `Error al cargar auditoría: ${err.message || 'Error de conexión'}`;
+      }
       countLabel.textContent = 'Error de conexión';
     }
   } finally {

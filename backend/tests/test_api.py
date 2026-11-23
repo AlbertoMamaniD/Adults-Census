@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import sys
 from pathlib import Path
 import unittest
@@ -8,6 +9,13 @@ import unittest
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
+
+# Configuración obligatoria de aislamiento de pruebas (Qodo Finding 3)
+# Forzar base de datos SQLite aislada temporal antes de importar bindings de base de datos
+os.environ["ENV"] = "testing"
+os.environ["TESTING"] = "1"
+_test_db_path = BACKEND_DIR.parent / "artifacts" / "test_isolated.db"
+os.environ["SUPABASE_DB_URL"] = f"sqlite:///{_test_db_path.as_posix()}"
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -22,7 +30,13 @@ from app.database.models import ModelRun, Prediction, TrainingDataset
 class TestRobustBackendAPI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # 1. Asegurar creación de tablas en SQLite o verificar conexión
+        # 1. Asegurar aislamiento estricto y creación de tablas en SQLite
+        if not settings.DATABASE_URL.startswith("sqlite"):
+            raise RuntimeError(
+                f"Seguridad de Pruebas: Se detectó una base de datos no aislada ({settings.DATABASE_URL}). "
+                "Las pruebas requieren una base de datos SQLite aislada para no mutar entornos compartidos."
+            )
+
         from app.database.connection import Base, engine
         Base.metadata.create_all(bind=engine)
 
@@ -456,6 +470,18 @@ class TestRobustBackendAPI(unittest.TestCase):
         with self.assertRaises(Exception):
             with self.client.websocket_connect("/ws/retrain?token=invalid_forged_token"):
                 pass
+
+    def test_19c_websocket_in_band_authentication(self):
+        """Verifica que la autenticación en banda sobre WebSocket funcione sin token en query URL (Qodo Finding 5)."""
+        with self.client.websocket_connect("/ws/retrain") as websocket:
+            welcome = websocket.receive_json()
+            self.assertEqual(welcome.get("stage"), "connected")
+
+            # Enviar mensaje de autenticación en banda
+            websocket.send_text(json.dumps({"type": "auth", "token": self.token}))
+            resp = websocket.receive_json()
+            self.assertEqual(resp.get("stage"), "auth")
+            self.assertEqual(resp.get("status"), "authenticated")
 
     # =========================================================================
     # 9. PRUEBAS DE RESILIENCIA EN ARRANQUE Y RECUPERACIÓN DE MLOPS (QODO BUGS)

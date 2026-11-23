@@ -109,7 +109,7 @@ export function renderMetricsDashboard(containerId) {
         <section class="card">
           <div class="card-header">
             <div>
-              <h3 class="card-title">Matriz de Rendimiento Crediticio (6.508 Clientes Evaluados)</h3>
+              <h3 class="card-title" id="cm-eval-title">Matriz de Rendimiento Crediticio</h3>
               <p class="card-subtitle" style="margin: 0;">Prueba independiente sobre el 20% de solicitudes no vistas durante el entrenamiento.</p>
             </div>
             <span class="badge badge-neutral" id="cm-model-tag">v_latest</span>
@@ -120,7 +120,7 @@ export function renderMetricsDashboard(containerId) {
               <div class="cm-value text-muted" id="cm-tn">--</div>
               <div class="cm-title">Verdaderos Negativos (TN)</div>
               <span id="cm-tn-desc" style="font-size: 0.75rem; color: var(--color-primary-600); display: block; margin-top: 0.25rem;">
-                <strong>Capital Protegido:</strong> 4.670 clientes no solventes rechazados a tiempo (~71.8% de la cartera).
+                <strong>Capital Protegido:</strong> Calculando desglose de cartera...
               </span>
             </div>
 
@@ -128,7 +128,7 @@ export function renderMetricsDashboard(containerId) {
               <div class="cm-value text-negative" id="cm-fp">--</div>
               <div class="cm-title text-negative">Falsos Positivos (FP)</div>
               <span id="cm-fp-desc" style="font-size: 0.75rem; color: var(--color-negative); display: block; margin-top: 0.25rem;">
-                <strong>Riesgo Crítico de Mora (Costo 3x):</strong> Solo 270 clientes mal clasificados (reducido a 4.1%).
+                <strong>Riesgo Crítico de Mora (Costo 3x):</strong> Calculando exposición al riesgo...
               </span>
             </div>
 
@@ -136,15 +136,15 @@ export function renderMetricsDashboard(containerId) {
               <div class="cm-value text-warning" id="cm-fn">--</div>
               <div class="cm-title text-warning">Falsos Negativos (FN)</div>
               <span id="cm-fn-desc" style="font-size: 0.75rem; color: var(--color-warning); display: block; margin-top: 0.25rem;">
-                <strong>Costo de Oportunidad Comercial (Costo 1x):</strong> 588 clientes solventes que no recibieron oferta (9.0%).
+                <strong>Costo de Oportunidad Comercial (Costo 1x):</strong> Calculando clientes desatendidos...
               </span>
             </div>
 
             <div class="cm-cell tp">
               <div class="cm-value text-positive" id="cm-tp">--</div>
               <div class="cm-title text-positive">Verdaderos Positivos (TP)</div>
-              <span style="font-size: 0.75rem; color: var(--color-positive); display: block; margin-top: 0.25rem;">
-                <strong>Colocación Exitosa:</strong> 980 clientes de alta solvencia aprobados con retorno de interés garantizado.
+              <span id="cm-tp-desc" style="font-size: 0.75rem; color: var(--color-positive); display: block; margin-top: 0.25rem;">
+                <strong>Colocación Exitosa:</strong> Calculando colocación de créditos...
               </span>
             </div>
           </div>
@@ -217,44 +217,66 @@ export async function loadMetricsData(container) {
     const elFpDesc = container.querySelector('#cm-fp-desc');
     const elFnDesc = container.querySelector('#cm-fn-desc');
 
-    const threshPct = data.threshold ? (data.threshold * 100).toFixed(1) : '77.0';
-    const threshVal = data.threshold !== undefined ? Number(data.threshold).toFixed(2) : '0.77';
+    const threshPct = (data.threshold !== null && data.threshold !== undefined) ? (Number(data.threshold) * 100).toFixed(1) : '--';
+    const threshVal = (data.threshold !== null && data.threshold !== undefined) ? Number(data.threshold).toFixed(2) : '--';
 
-    if (elMcc) elMcc.textContent = metrics.mcc ? metrics.mcc.toFixed(4) : '0.6192';
-    if (elRoc) elRoc.textContent = metrics.roc_auc ? metrics.roc_auc.toFixed(4) : '0.9217';
-    if (elPrec) elPrec.textContent = metrics.precision ? `${(metrics.precision * 100).toFixed(1)}%` : '78.4%';
-    if (elRecall) elRecall.textContent = metrics.recall ? `${(metrics.recall * 100).toFixed(1)}%` : '62.5%';
-    if (elThresh) elThresh.textContent = `${threshPct}%`;
+    if (elMcc) elMcc.textContent = (metrics.mcc !== null && metrics.mcc !== undefined) ? Number(metrics.mcc).toFixed(4) : '--';
+    if (elRoc) elRoc.textContent = (metrics.roc_auc !== null && metrics.roc_auc !== undefined) ? Number(metrics.roc_auc).toFixed(4) : '--';
+    if (elPrec) elPrec.textContent = (metrics.precision !== null && metrics.precision !== undefined) ? `${(Number(metrics.precision) * 100).toFixed(1)}%` : '--';
+    if (elRecall) elRecall.textContent = (metrics.recall !== null && metrics.recall !== undefined) ? `${(Number(metrics.recall) * 100).toFixed(1)}%` : '--';
+    if (elThresh) elThresh.textContent = threshPct !== '--' ? `${threshPct}%` : '--';
 
-    if (elThreshGoal) elThreshGoal.textContent = `Umbral Calibrado: ${threshPct}%`;
-    if (elThreshSubtext) elThreshSubtext.textContent = `El optimizador CRISP-ML(Q) exige ${threshPct}% de certeza para minimizar la mora bajo penalización 3:1.`;
+    if (elThreshGoal) elThreshGoal.textContent = threshPct !== '--' ? `Umbral Calibrado: ${threshPct}%` : 'Umbral: No disponible';
+    if (elThreshSubtext) elThreshSubtext.textContent = threshPct !== '--'
+      ? `El optimizador CRISP-ML(Q) exige ${threshPct}% de certeza para minimizar la mora bajo penalización 3:1.`
+      : 'Umbral no configurado.';
 
-    const tnVal = cm.tn ?? 4670;
-    const fpVal = cm.fp ?? 270;
-    const fnVal = cm.fn ?? 588;
-    const tpVal = cm.tp ?? 980;
+    const hasCm = cm && (cm.tn !== undefined || cm.fp !== undefined || cm.fn !== undefined || cm.tp !== undefined);
+    const tnVal = (cm.tn !== null && cm.tn !== undefined) ? Number(cm.tn) : 0;
+    const fpVal = (cm.fp !== null && cm.fp !== undefined) ? Number(cm.fp) : 0;
+    const fnVal = (cm.fn !== null && cm.fn !== undefined) ? Number(cm.fn) : 0;
+    const tpVal = (cm.tp !== null && cm.tp !== undefined) ? Number(cm.tp) : 0;
 
-    if (elTn) elTn.textContent = tnVal.toLocaleString();
-    if (elFp) elFp.textContent = fpVal.toLocaleString();
-    if (elFn) elFn.textContent = fnVal.toLocaleString();
-    if (elTp) elTp.textContent = tpVal.toLocaleString();
+    if (elTn) elTn.textContent = hasCm ? tnVal.toLocaleString() : '--';
+    if (elFp) elFp.textContent = hasCm ? fpVal.toLocaleString() : '--';
+    if (elFn) elFn.textContent = hasCm ? fnVal.toLocaleString() : '--';
+    if (elTp) elTp.textContent = hasCm ? tpVal.toLocaleString() : '--';
 
     const expectedCost = (3 * fpVal) + (1 * fnVal);
-    if (elCost) elCost.textContent = `${expectedCost.toLocaleString()} pts de riesgo (3 × ${fpVal} + 1 × ${fnVal})`;
-    if (elTag) elTag.textContent = data.model_version || 'v20261117002816';
+    if (elCost) elCost.textContent = hasCm ? `${expectedCost.toLocaleString()} pts de riesgo (3 × ${fpVal} + 1 × ${fnVal})` : '--';
+    if (elTag) elTag.textContent = data.model_version || '--';
 
     const totalEvals = tnVal + fpVal + fnVal + tpVal;
-    if (elTnDesc && totalEvals > 0) {
-      elTnDesc.innerHTML = `<strong>Capital Protegido:</strong> ${tnVal.toLocaleString()} clientes no solventes rechazados a tiempo (~${((tnVal / totalEvals) * 100).toFixed(1)}% de la cartera).`;
+    const elCmTitle = container.querySelector('#cm-eval-title');
+    if (elCmTitle) {
+      elCmTitle.textContent = totalEvals > 0 ? `Matriz de Rendimiento Crediticio (${totalEvals.toLocaleString()} Clientes Evaluados)` : 'Matriz de Rendimiento Crediticio';
     }
-    if (elFpDesc && totalEvals > 0) {
-      elFpDesc.innerHTML = `<strong>Riesgo Crítico de Mora (Costo 3x):</strong> Solo ${fpVal.toLocaleString()} clientes mal clasificados (~${((fpVal / totalEvals) * 100).toFixed(1)}%).`;
+
+    if (elTnDesc) {
+      elTnDesc.innerHTML = totalEvals > 0
+        ? `<strong>Capital Protegido:</strong> ${tnVal.toLocaleString()} clientes no solventes rechazados a tiempo (~${((tnVal / totalEvals) * 100).toFixed(1)}% de la cartera).`
+        : 'Sin evaluaciones registradas.';
     }
-    if (elFnDesc && totalEvals > 0) {
-      elFnDesc.innerHTML = `<strong>Costo de Oportunidad Comercial (Costo 1x):</strong> ${fnVal.toLocaleString()} clientes solventes no ofertados (~${((fnVal / totalEvals) * 100).toFixed(1)}%).`;
+    if (elFpDesc) {
+      elFpDesc.innerHTML = totalEvals > 0
+        ? `<strong>Riesgo Crítico de Mora (Costo 3x):</strong> Solo ${fpVal.toLocaleString()} clientes mal clasificados (~${((fpVal / totalEvals) * 100).toFixed(1)}%).`
+        : 'Sin evaluaciones registradas.';
+    }
+    if (elFnDesc) {
+      elFnDesc.innerHTML = totalEvals > 0
+        ? `<strong>Costo de Oportunidad Comercial (Costo 1x):</strong> ${fnVal.toLocaleString()} clientes solventes no ofertados (~${((fnVal / totalEvals) * 100).toFixed(1)}%).`
+        : 'Sin evaluaciones registradas.';
+    }
+    const elTpDesc = container.querySelector('#cm-tp-desc');
+    if (elTpDesc) {
+      elTpDesc.innerHTML = totalEvals > 0
+        ? `<strong>Colocación Exitosa:</strong> ${tpVal.toLocaleString()} clientes de alta solvencia aprobados (~${((tpVal / totalEvals) * 100).toFixed(1)}%).`
+        : 'Sin evaluaciones registradas.';
     }
     if (elPolicyThresh) {
-      elPolicyThresh.innerHTML = `• <strong>Umbral Óptimo Calibrado θ = ${threshVal} (${threshPct}%):</strong> Optimizado contra la función de costo asimétrica (Costo = ${expectedCost.toLocaleString()} pts de riesgo) asegurando más de 75% de precisión en aprobaciones.`;
+      elPolicyThresh.innerHTML = (threshVal !== '--' && hasCm)
+        ? `• <strong>Umbral Óptimo Calibrado θ = ${threshVal} (${threshPct}%):</strong> Optimizado contra la función de costo asimétrica (Costo = ${expectedCost.toLocaleString()} pts de riesgo) asegurando más de 75% de precisión en aprobaciones.`
+        : '• <strong>Política Patrimonial:</strong> Optimizado contra la función de costo asimétrica 3:1.';
     }
 
   } catch (err) {

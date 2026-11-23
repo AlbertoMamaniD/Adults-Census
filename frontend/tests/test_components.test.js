@@ -9,7 +9,8 @@ import { setupBrowserEnvironment, MockElement } from './setup.js';
 setupBrowserEnvironment();
 import { renderNavbar } from '../src/components/navbar.js';
 import { renderPredictor } from '../src/components/predictor.js';
-import { renderMetricsDashboard } from '../src/components/metricsDashboard.js';
+import { renderMetricsDashboard, loadMetricsData } from '../src/components/metricsDashboard.js';
+import { apiService } from '../src/services/apiService.js';
 import { renderHistoryTable } from '../src/components/historyTable.js';
 import { renderRetrainCenter } from '../src/components/retrainCenter.js';
 
@@ -100,5 +101,67 @@ describe('Componentes del Frontend — Pruebas de Renderizado e Inyección DOM',
     assert.ok(globalThis.document.getElementById('ws-terminal') !== null);
     assert.ok(globalThis.document.getElementById('retrain-progress-bar') !== null);
     assert.ok(globalThis.document.getElementById('ws-status-badge') !== null);
+  });
+
+  it('6. loadMetricsData debe mostrar 0.0% en métricas legítimas de valor cero (Qodo Finding 2)', async () => {
+    const root = new MockElement('section', 'tab-metrics');
+    globalThis.document._registerElement(root);
+    renderMetricsDashboard('tab-metrics');
+
+    // Simular respuesta del backend con métricas válidas en cero
+    const originalGetMetrics = apiService.getMetrics;
+    apiService.getMetrics = async () => ({
+      model_version: 'v_zero_test',
+      threshold: 0.50,
+      metrics: {
+        mcc: 0.0,
+        roc_auc: 0.50,
+        precision: 0.0,
+        recall: 0.0,
+        confusion_matrix: { tn: 100, fp: 0, fn: 50, tp: 0 }
+      }
+    });
+
+    try {
+      await loadMetricsData(root);
+
+      const elPrec = root.querySelector('#kpi-precision');
+      const elMcc = root.querySelector('#kpi-mcc');
+      const elRecall = root.querySelector('#kpi-recall');
+
+      assert.strictEqual(elPrec.textContent, '0.0%');
+      assert.strictEqual(elMcc.textContent, '0.0000');
+      assert.strictEqual(elRecall.textContent, '0.0%');
+    } finally {
+      apiService.getMetrics = originalGetMetrics;
+    }
+  });
+
+  it('7. loadMetricsData debe calcular evaluaciones dinámicas en la matriz de confusión (Qodo Finding 9)', async () => {
+    const root = new MockElement('section', 'tab-metrics');
+    globalThis.document._registerElement(root);
+    renderMetricsDashboard('tab-metrics');
+
+    const originalGetMetrics = apiService.getMetrics;
+    apiService.getMetrics = async () => ({
+      model_version: 'v_eval_test',
+      threshold: 0.65,
+      metrics: {
+        mcc: 0.60,
+        roc_auc: 0.91,
+        precision: 0.75,
+        recall: 0.60,
+        confusion_matrix: { tn: 1500, fp: 100, fn: 200, tp: 700 }
+      }
+    });
+
+    try {
+      await loadMetricsData(root);
+
+      const elTitle = root.querySelector('#cm-eval-title');
+      assert.strictEqual(elTitle.textContent, 'Matriz de Rendimiento Crediticio (2.500 Clientes Evaluados)');
+    } finally {
+      apiService.getMetrics = originalGetMetrics;
+    }
   });
 });

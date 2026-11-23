@@ -169,7 +169,11 @@ function setupRetrainEvents(container) {
     }
 
     btnStartRetrain.disabled = true;
-    terminal.innerHTML = `<div style="color: #38bdf8;">[INICIO] Estableciendo canal WebSocket seguro y preparando pipeline CRISP-ML(Q)...</div>`;
+    terminal.innerHTML = '';
+    const initLine = document.createElement('div');
+    initLine.style.color = '#38bdf8';
+    initLine.textContent = '[INICIO] Estableciendo canal WebSocket seguro y preparando pipeline CRISP-ML(Q)...';
+    terminal.appendChild(initLine);
     progressBar.style.width = '5%';
     wsBadge.textContent = 'Conectando...';
     wsBadge.className = 'badge badge-warning';
@@ -181,11 +185,11 @@ function setupRetrainEvents(container) {
         wsBadge.className = 'badge badge-positive';
 
         const stage = data.stage || 'proceso';
-        const msg = data.message || JSON.stringify(data);
-        const progress = data.progress_pct || 0;
+        const msg = String(data.message || (typeof data === 'object' ? JSON.stringify(data) : data));
+        const progress = data.progress !== undefined ? Number(data.progress) : (data.progress_pct !== undefined ? Number(data.progress_pct) : 0);
 
-        if (progress > 0) {
-          progressBar.style.width = `${progress}%`;
+        if (!isNaN(progress) && progress > 0) {
+          progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
         }
 
         const logLine = document.createElement('div');
@@ -193,10 +197,14 @@ function setupRetrainEvents(container) {
 
         if (stage === 'completed') {
           logLine.style.color = '#34d399';
-          logLine.innerHTML = `<strong>[EXITO]</strong> ${msg}`;
+          const strongTag = document.createElement('strong');
+          strongTag.textContent = '[EXITO] ';
+          logLine.appendChild(strongTag);
+          logLine.appendChild(document.createTextNode(msg));
+
           progressBar.style.width = '100%';
           wsBadge.textContent = 'Completado';
-          btnStartRetrain.disabled = false;
+          wsBadge.className = 'badge badge-positive';
 
           // Sincronizar en vivo el nuevo modelo y umbral con todos los módulos
           const payload = data.payload || {};
@@ -219,13 +227,20 @@ function setupRetrainEvents(container) {
           window.showToast?.('Reentrenamiento completado con éxito. Modelo activado en vivo.', 'success');
         } else if (stage === 'error') {
           logLine.style.color = '#f87171';
-          logLine.innerHTML = `<strong>[ERROR]</strong> ${msg}`;
+          const strongTag = document.createElement('strong');
+          strongTag.textContent = '[ERROR] ';
+          logLine.appendChild(strongTag);
+          logLine.appendChild(document.createTextNode(msg));
+
           wsBadge.textContent = 'Error';
           wsBadge.className = 'badge badge-negative';
-          btnStartRetrain.disabled = false;
           window.showToast?.(`Fallo en reentrenamiento: ${msg}`, 'error');
         } else {
-          logLine.innerHTML = `<span style="color: #94a3b8;">[${stage.toUpperCase()}]</span> ${msg}`;
+          const stageSpan = document.createElement('span');
+          stageSpan.style.color = '#94a3b8';
+          stageSpan.textContent = `[${stage.toUpperCase()}] `;
+          logLine.appendChild(stageSpan);
+          logLine.appendChild(document.createTextNode(msg));
         }
 
         terminal.appendChild(logLine);
@@ -234,7 +249,6 @@ function setupRetrainEvents(container) {
       (err) => {
         wsBadge.textContent = 'Error WS';
         wsBadge.className = 'badge badge-negative';
-        btnStartRetrain.disabled = false;
       },
       () => {
         if (wsBadge.textContent !== 'Completado' && wsBadge.textContent !== 'Error') {
@@ -259,6 +273,7 @@ function setupRetrainEvents(container) {
       errLine.style.color = '#f87171';
       errLine.textContent = `[ERROR DE DISPARO] ${err.message}`;
       terminal.appendChild(errLine);
+    } finally {
       btnStartRetrain.disabled = false;
     }
   });
@@ -279,20 +294,30 @@ async function handleFileUpload(file, statusEl, onDatasetUploaded = null) {
     if (onDatasetUploaded && res.dataset_id) {
       onDatasetUploaded(res.dataset_id);
     }
-    statusEl.innerHTML = `
-      <div style="background-color: var(--color-positive-bg); border: 1px solid var(--color-positive-border); color: var(--color-positive); padding: 0.75rem; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.5rem;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-        <span><strong>Lote Ingerido Exitosamente:</strong> Se validaron <strong>${res.rows_ingested || 'todas las'} filas</strong> censales en Supabase (Dataset ID: #${res.dataset_id || 1}).</span>
-      </div>
-    `;
+    statusEl.innerHTML = '';
+    const successBox = document.createElement('div');
+    successBox.style.cssText = 'background-color: var(--color-positive-bg); border: 1px solid var(--color-positive-border); color: var(--color-positive); padding: 0.75rem; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.5rem;';
+    successBox.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+    const textSpan = document.createElement('span');
+    const strongPrefix = document.createElement('strong');
+    strongPrefix.textContent = 'Lote Ingerido Exitosamente: ';
+    textSpan.appendChild(strongPrefix);
+    textSpan.appendChild(document.createTextNode(`Se validaron ${res.rows_ingested || 'todas las'} filas censales en Supabase (Dataset ID: #${res.dataset_id || 1}).`));
+    successBox.appendChild(textSpan);
+    statusEl.appendChild(successBox);
     window.showToast?.('Dataset validado e ingresado a training_datasets', 'success');
   } catch (err) {
-    statusEl.innerHTML = `
-      <div style="background-color: var(--color-negative-bg); border: 1px solid var(--color-negative-border); color: var(--color-negative); padding: 0.75rem; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.5rem;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-        <span><strong>Error en la Ingesta:</strong> ${err.message}</span>
-      </div>
-    `;
+    statusEl.innerHTML = '';
+    const errBox = document.createElement('div');
+    errBox.style.cssText = 'background-color: var(--color-negative-bg); border: 1px solid var(--color-negative-border); color: var(--color-negative); padding: 0.75rem; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.5rem;';
+    errBox.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
+    const textSpan = document.createElement('span');
+    const strongPrefix = document.createElement('strong');
+    strongPrefix.textContent = 'Error en la Ingesta: ';
+    textSpan.appendChild(strongPrefix);
+    textSpan.appendChild(document.createTextNode(err.message || 'Error desconocido'));
+    errBox.appendChild(textSpan);
+    statusEl.appendChild(errBox);
     window.showToast?.(`Error al subir CSV: ${err.message}`, 'error');
   }
 }

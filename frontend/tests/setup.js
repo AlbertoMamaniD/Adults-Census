@@ -39,6 +39,7 @@ export class MockElement {
     this.value = '';
     this.disabled = false;
     this.style = {};
+    this.dataset = {};
     this.eventListeners = {};
   }
 

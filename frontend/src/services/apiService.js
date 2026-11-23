@@ -149,21 +149,28 @@ class ApiService {
     return this._request('/api/v1/retrain', {
       method: 'POST',
       body,
+      timeout: 180000, // 3 minutos para permitir pipeline completo de reentrenamiento
     });
   }
 
-  // 8. Conexión WebSocket para Reentrenamiento
+  // 8. Conexión WebSocket para Reentrenamiento (Autenticación en banda para proteger credenciales)
   connectWebSocket(onMessage, onError, onClose) {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       this.ws.close();
     }
 
-    let wsUrl = `${WS_BASE_URL}/ws/retrain`;
-    if (this.token) {
-      wsUrl += `?token=${encodeURIComponent(this.token)}`;
-    }
-
+    const wsUrl = `${WS_BASE_URL}/ws/retrain`;
     this.ws = new WebSocket(wsUrl);
+
+    this.ws.onopen = () => {
+      if (this.token) {
+        try {
+          this.ws.send(JSON.stringify({ type: 'auth', token: this.token }));
+        } catch (e) {
+          console.warn('[WS] Error enviando credenciales en banda:', e);
+        }
+      }
+    };
 
     this.ws.onmessage = (event) => {
       try {
