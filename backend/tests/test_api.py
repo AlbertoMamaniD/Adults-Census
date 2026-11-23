@@ -16,7 +16,7 @@ from app.config import settings
 from app.main import app, lifespan
 from app.services.ml_service import ml_service
 from app.database.connection import SessionLocal
-from app.database.models import ModelRun, Prediction
+from app.database.models import ModelRun, Prediction, TrainingDataset
 
 
 class TestRobustBackendAPI(unittest.TestCase):
@@ -82,7 +82,7 @@ class TestRobustBackendAPI(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["status"], "healthy")
         self.assertIn("active_model_version", data)
-        self.assertAlmostEqual(data["threshold"], 0.77, places=2)
+        self.assertAlmostEqual(data["threshold"], ml_service.threshold, places=2)
         # Verificar header de tiempo de procesamiento inyectado por middleware
         self.assertIn("x-process-time-ms", response.headers)
         # Verificar cabeceras de seguridad OWASP
@@ -146,8 +146,8 @@ class TestRobustBackendAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["predicted_class"], "<=50K")
-        self.assertLess(data["probability"], 0.77)
-        self.assertAlmostEqual(data["threshold_applied"], 0.77, places=2)
+        self.assertLess(data["probability"], ml_service.threshold)
+        self.assertAlmostEqual(data["threshold_applied"], ml_service.threshold, places=2)
         self.assertIn("No califica", data["recommendation"])
         self.assertGreater(data["latency_ms"], 0.0)
 
@@ -171,7 +171,7 @@ class TestRobustBackendAPI(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["predicted_class"], ">50K")
-        self.assertGreaterEqual(data["probability"], 0.77)
+        self.assertGreaterEqual(data["probability"], ml_service.threshold)
         self.assertIn("Califica para producto de crédito", data["recommendation"])
 
     def test_07_predict_unseen_category_robustness(self):
@@ -302,7 +302,7 @@ class TestRobustBackendAPI(unittest.TestCase):
         response = self.client.get("/api/v1/metrics")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertAlmostEqual(data["threshold"], 0.77, places=2)
+        self.assertAlmostEqual(data["threshold"], ml_service.threshold, places=2)
         metrics = data["metrics"]
         self.assertGreaterEqual(metrics["mcc"], 0.55, "MCC debe ser >= 0.55")
         self.assertGreaterEqual(metrics["precision"], 0.75, "Precision debe ser >= 0.75")

@@ -94,11 +94,11 @@ export function renderMetricsDashboard(containerId) {
         <div class="kpi-card">
           <div class="kpi-label">Filtro de Seguridad (θ)</div>
           <div class="kpi-value" id="kpi-threshold" style="color: var(--color-accent-600);">--</div>
-          <div class="kpi-goal" style="color: var(--color-accent-700);">
-            Umbral Calibrado: 77.0%
+          <div class="kpi-goal" id="kpi-threshold-goal" style="color: var(--color-accent-700);">
+            Umbral Óptimo Calibrado
           </div>
-          <div class="kpi-subtext">
-            El banco no presta al 50%. Exige 77% de certeza para minimizar la mora.
+          <div class="kpi-subtext" id="kpi-threshold-subtext">
+            Calibrado matemáticamente para minimizar la mora y el riesgo financiero.
           </div>
         </div>
       </div>
@@ -118,7 +118,7 @@ export function renderMetricsDashboard(containerId) {
             <div class="cm-cell tn">
               <div class="cm-value text-muted" id="cm-tn">--</div>
               <div class="cm-title">Verdaderos Negativos (TN)</div>
-              <span style="font-size: 0.75rem; color: var(--color-primary-600); display: block; margin-top: 0.25rem;">
+              <span id="cm-tn-desc" style="font-size: 0.75rem; color: var(--color-primary-600); display: block; margin-top: 0.25rem;">
                 <strong>Capital Protegido:</strong> 4.670 clientes no solventes rechazados a tiempo (~71.8% de la cartera).
               </span>
             </div>
@@ -126,7 +126,7 @@ export function renderMetricsDashboard(containerId) {
             <div class="cm-cell fp">
               <div class="cm-value text-negative" id="cm-fp">--</div>
               <div class="cm-title text-negative">Falsos Positivos (FP)</div>
-              <span style="font-size: 0.75rem; color: var(--color-negative); display: block; margin-top: 0.25rem;">
+              <span id="cm-fp-desc" style="font-size: 0.75rem; color: var(--color-negative); display: block; margin-top: 0.25rem;">
                 <strong>Riesgo Crítico de Mora (Costo 3x):</strong> Solo 270 clientes mal clasificados (reducido a 4.1%).
               </span>
             </div>
@@ -134,7 +134,7 @@ export function renderMetricsDashboard(containerId) {
             <div class="cm-cell fn">
               <div class="cm-value text-warning" id="cm-fn">--</div>
               <div class="cm-title text-warning">Falsos Negativos (FN)</div>
-              <span style="font-size: 0.75rem; color: var(--color-warning); display: block; margin-top: 0.25rem;">
+              <span id="cm-fn-desc" style="font-size: 0.75rem; color: var(--color-warning); display: block; margin-top: 0.25rem;">
                 <strong>Costo de Oportunidad Comercial (Costo 1x):</strong> 588 clientes solventes que no recibieron oferta (9.0%).
               </span>
             </div>
@@ -168,8 +168,8 @@ export function renderMetricsDashboard(containerId) {
             <p style="margin-bottom: 0.5rem;">
               • <strong>Falso Negativo (Ponderación 1x):</strong> No ofertar a un cliente solvente solo implica el costo de oportunidad de no ganar intereses, pero el patrimonio del banco no corre peligro.
             </p>
-            <p style="margin-bottom: 0;">
-              • <strong>Umbral Óptimo θ = 0.77:</strong> Al exigir un 77% de certeza matemática, el banco reduce los Falsos Positivos en más de un 60% comparado con el umbral por defecto, logrando la máxima estabilidad financiera.
+            <p id="cm-policy-threshold" style="margin-bottom: 0;">
+              • <strong>Umbral Óptimo Calibrado:</strong> Minimizando el costo asimétrico 3×FP + 1×FN con alta efectividad asegurada.
             </p>
           </div>
         </section>
@@ -202,11 +202,24 @@ export async function loadMetricsData(container) {
     const elCost = container.querySelector('#cm-cost-val');
     const elTag = container.querySelector('#cm-model-tag');
 
+    const elThreshGoal = container.querySelector('#kpi-threshold-goal');
+    const elThreshSubtext = container.querySelector('#kpi-threshold-subtext');
+    const elPolicyThresh = container.querySelector('#cm-policy-threshold');
+    const elTnDesc = container.querySelector('#cm-tn-desc');
+    const elFpDesc = container.querySelector('#cm-fp-desc');
+    const elFnDesc = container.querySelector('#cm-fn-desc');
+
+    const threshPct = data.threshold ? (data.threshold * 100).toFixed(1) : '77.0';
+    const threshVal = data.threshold !== undefined ? Number(data.threshold).toFixed(2) : '0.77';
+
     if (elMcc) elMcc.textContent = metrics.mcc ? metrics.mcc.toFixed(4) : '0.6192';
     if (elRoc) elRoc.textContent = metrics.roc_auc ? metrics.roc_auc.toFixed(4) : '0.9217';
     if (elPrec) elPrec.textContent = metrics.precision ? `${(metrics.precision * 100).toFixed(1)}%` : '78.4%';
     if (elRecall) elRecall.textContent = metrics.recall ? `${(metrics.recall * 100).toFixed(1)}%` : '62.5%';
-    if (elThresh) elThresh.textContent = data.threshold ? `${(data.threshold * 100).toFixed(1)}%` : '77.0%';
+    if (elThresh) elThresh.textContent = `${threshPct}%`;
+
+    if (elThreshGoal) elThreshGoal.textContent = `Umbral Calibrado: ${threshPct}%`;
+    if (elThreshSubtext) elThreshSubtext.textContent = `El optimizador CRISP-ML(Q) exige ${threshPct}% de certeza para minimizar la mora bajo penalización 3:1.`;
 
     const tnVal = cm.tn ?? 4670;
     const fpVal = cm.fp ?? 270;
@@ -221,6 +234,20 @@ export async function loadMetricsData(container) {
     const expectedCost = (3 * fpVal) + (1 * fnVal);
     if (elCost) elCost.textContent = `${expectedCost.toLocaleString()} pts de riesgo (3 × ${fpVal} + 1 × ${fnVal})`;
     if (elTag) elTag.textContent = data.model_version || 'v20261117002816';
+
+    const totalEvals = tnVal + fpVal + fnVal + tpVal;
+    if (elTnDesc && totalEvals > 0) {
+      elTnDesc.innerHTML = `<strong>Capital Protegido:</strong> ${tnVal.toLocaleString()} clientes no solventes rechazados a tiempo (~${((tnVal / totalEvals) * 100).toFixed(1)}% de la cartera).`;
+    }
+    if (elFpDesc && totalEvals > 0) {
+      elFpDesc.innerHTML = `<strong>Riesgo Crítico de Mora (Costo 3x):</strong> Solo ${fpVal.toLocaleString()} clientes mal clasificados (~${((fpVal / totalEvals) * 100).toFixed(1)}%).`;
+    }
+    if (elFnDesc && totalEvals > 0) {
+      elFnDesc.innerHTML = `<strong>Costo de Oportunidad Comercial (Costo 1x):</strong> ${fnVal.toLocaleString()} clientes solventes no ofertados (~${((fnVal / totalEvals) * 100).toFixed(1)}%).`;
+    }
+    if (elPolicyThresh) {
+      elPolicyThresh.innerHTML = `• <strong>Umbral Óptimo Calibrado θ = ${threshVal} (${threshPct}%):</strong> Optimizado contra la función de costo asimétrica (Costo = ${expectedCost.toLocaleString()} pts de riesgo) asegurando más de 75% de precisión en aprobaciones.`;
+    }
 
   } catch (err) {
     console.warn('[METRICS] Error al cargar métricas del backend:', err);
