@@ -239,18 +239,23 @@ async def trigger_retrain(
         selected_dataset_id = dataset_rec.id
         target_csv_path = candidate_path
     else:
-        # Buscar el dataset más reciente subido con estado 'uploaded'
-        latest_uploaded = (
-            db.query(TrainingDataset)
-            .filter(TrainingDataset.status == "uploaded")
-            .order_by(TrainingDataset.uploaded_at.desc(), TrainingDataset.id.desc())
-            .first()
-        )
-        if latest_uploaded:
-            cand_path = _resolve_dataset_path(latest_uploaded)
-            if cand_path and cand_path.exists():
-                selected_dataset_id = latest_uploaded.id
-                target_csv_path = cand_path
+        # Prioridad 1: Dataset censal completo de producción (32,561 registros)
+        base_csv = settings.DATA_DIR / "adult.csv"
+        if base_csv.exists():
+            target_csv_path = base_csv
+        else:
+            # Prioridad 2: Buscar el dataset más reciente subido con estado 'uploaded'
+            latest_uploaded = (
+                db.query(TrainingDataset)
+                .filter(TrainingDataset.status == "uploaded")
+                .order_by(TrainingDataset.uploaded_at.desc(), TrainingDataset.id.desc())
+                .first()
+            )
+            if latest_uploaded:
+                cand_path = _resolve_dataset_path(latest_uploaded)
+                if cand_path and cand_path.exists():
+                    selected_dataset_id = latest_uploaded.id
+                    target_csv_path = cand_path
 
     if target_csv_path is None:
         target_csv_path = settings.DATA_DIR / "adult.csv"

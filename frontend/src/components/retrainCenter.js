@@ -131,6 +131,8 @@ function setupRetrainEvents(container) {
     authAlert.classList.remove('hidden');
   }
 
+  let currentUploadedDatasetId = null;
+
   // Eventos de Dropzone
   dropzone.addEventListener('click', () => fileInput.click());
 
@@ -145,13 +147,13 @@ function setupRetrainEvents(container) {
     e.preventDefault();
     dropzone.classList.remove('dragover');
     if (e.dataTransfer.files.length > 0) {
-      handleFileUpload(e.dataTransfer.files[0], uploadStatus);
+      handleFileUpload(e.dataTransfer.files[0], uploadStatus, (id) => { currentUploadedDatasetId = id; });
     }
   });
 
   fileInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
-      handleFileUpload(e.target.files[0], uploadStatus);
+      handleFileUpload(e.target.files[0], uploadStatus, (id) => { currentUploadedDatasetId = id; });
     }
   });
 
@@ -222,7 +224,7 @@ function setupRetrainEvents(container) {
 
     // Disparar endpoint de reentrenamiento
     try {
-      await apiService.triggerRetrain();
+      await apiService.triggerRetrain(currentUploadedDatasetId);
     } catch (err) {
       const errLine = document.createElement('div');
       errLine.style.color = '#f87171';
@@ -233,7 +235,7 @@ function setupRetrainEvents(container) {
   });
 }
 
-async function handleFileUpload(file, statusEl) {
+async function handleFileUpload(file, statusEl, onDatasetUploaded = null) {
   if (!file.name.endsWith('.csv')) {
     statusEl.innerHTML = `<div class="badge badge-negative">El archivo debe tener formato .csv</div>`;
     statusEl.classList.remove('hidden');
@@ -245,6 +247,9 @@ async function handleFileUpload(file, statusEl) {
 
   try {
     const res = await apiService.uploadDataset(file);
+    if (onDatasetUploaded && res.dataset_id) {
+      onDatasetUploaded(res.dataset_id);
+    }
     statusEl.innerHTML = `
       <div style="background-color: var(--color-positive-bg); border: 1px solid var(--color-positive-border); color: var(--color-positive); padding: 0.75rem; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.5rem;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
