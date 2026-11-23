@@ -330,26 +330,27 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
                 prev_run = check_session.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
                 previous_active_version = prev_run.model_version if prev_run else ml_service.model_version
 
-                # Protocolo de promoción: verificar que no haya una activación más reciente que supere a este entrenamiento (Qodo Finding 2)
-                latest_run = check_session.query(ModelRun).order_by(ModelRun.id.desc()).first()
-                if latest_run and latest_run.created_at:
-                    created_at_utc = latest_run.created_at.replace(tzinfo=timezone.utc) if latest_run.created_at.tzinfo is None else latest_run.created_at
+                # Protocolo de promoción: verificar únicamente contra modelos activados exitosamente (Qodo Finding 1)
+                latest_active_run = check_session.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
+                if latest_active_run and latest_active_run.created_at:
+                    created_at_utc = latest_active_run.created_at.replace(tzinfo=timezone.utc) if latest_active_run.created_at.tzinfo is None else latest_active_run.created_at
                     if created_at_utc > training_started_at:
                         logger.warning(
-                            f"Existe una versión activa más reciente ({latest_run.model_version}) "
+                            f"Existe una versión activa más reciente ({latest_active_run.model_version}) "
                             f"activada en {created_at_utc}. Abortando promoción de {new_version}."
                         )
                         if tmp_manifest_path.exists():
                             tmp_manifest_path.unlink()
                         return {
                             "status": "superseded",
-                            "message": f"El modelo candidato '{new_version}' fue superado por una versión más reciente activa ({latest_run.model_version}).",
-                            "new_model_version": latest_run.model_version,
-                            "threshold": latest_run.threshold,
-                            "metrics": latest_run.metrics or metrics_payload,
+                            "message": f"El modelo candidato '{new_version}' fue superado por una versión más reciente activa ({latest_active_run.model_version}).",
+                            "new_model_version": latest_active_run.model_version,
+                            "threshold": latest_active_run.threshold,
+                            "metrics": latest_active_run.metrics or metrics_payload,
                         }
 
             db_committed = False
+            prior_dataset_status: Optional[str] = None
             try:
                 # 2. Registrar y confirmar primero en Base de Datos de manera transaccional (Qodo Finding 1 y 2)
                 with SessionLocal() as db_session:
@@ -369,6 +370,7 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
                     if dataset_id is not None:
                         dataset_record = db_session.query(TrainingDataset).filter(TrainingDataset.id == dataset_id).first()
                         if dataset_record:
+                            prior_dataset_status = dataset_record.status  # Capturar estado previo del lote (Qodo Finding 2)
                             dataset_record.status = "processed"
                     db_session.commit()
                     db_committed = True
@@ -399,29 +401,58 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
                             pass
 
                 # Si falló la publicación en disco después de haber hecho commit en DB, compensar en base de datos
+                compensation_failed = False
                 if db_committed:
                     try:
                         with SessionLocal() as comp_session:
                             comp_session.query(ModelRun).filter(ModelRun.model_version == new_version).update({"is_active": False})
                             if previous_active_version:
                                 comp_session.query(ModelRun).filter(ModelRun.model_version == previous_active_version).update({"is_active": True})
+                            # Restaurar el estado previo del dataset si fue procesado (Qodo Finding 2)
+                            if dataset_id is not None and prior_dataset_status is not None:
+                                comp_ds = comp_session.query(TrainingDataset).filter(TrainingDataset.id == dataset_id).first()
+                                if comp_ds:
+                                    comp_ds.status = prior_dataset_status
                             comp_session.commit()
-                            logger.info(f"Compensación ejecutada: versión {new_version} desactivada y restaurada {previous_active_version}")
+                            logger.info(f"Compensación ejecutada: versión {new_version} desactivada, restaurada {previous_active_version} y dataset #{dataset_id} restaurado a '{prior_dataset_status}'")
                     except Exception as comp_err:
-                        logger.error(f"Error en compensación de base de datos: {comp_err}")
+                        compensation_failed = True
+                        logger.critical(f"Fallo crítico en compensación de base de datos tras error de publicación: {comp_err}")
 
-                # Restaurar manifiesto y artefactos de compatibilidad previos íntegramente
+                # Tratar compensación fallida como estado no resuelto: no fingir rollback exitoso (Qodo Finding 3)
+                if compensation_failed:
+                    ml_service.is_fallback = True
+                    raise RuntimeError(
+                        f"Fallo crítico irresoluble: falló la compensación en base de datos para la versión {new_version}. "
+                        "Servicio puesto en modo degradado para evitar división de estado entre inferencia y base de datos."
+                    )
+
+                # Restaurar manifiesto y artefactos de compatibilidad previos a su estado exacto (Qodo Finding 4)
                 if old_manifest_bytes is not None:
                     active_version_path.write_bytes(old_manifest_bytes)
                 elif active_version_path.exists():
-                    active_version_path.unlink()
+                    try:
+                        active_version_path.unlink()
+                    except Exception:
+                        pass
 
                 if old_model_latest_bytes is not None:
                     latest_model_path.write_bytes(old_model_latest_bytes)
+                elif latest_model_path.exists():
+                    try:
+                        latest_model_path.unlink()
+                    except Exception:
+                        pass
+
                 if old_meta_latest_bytes is not None:
                     latest_meta_path.write_bytes(old_meta_latest_bytes)
+                elif latest_meta_path.exists():
+                    try:
+                        latest_meta_path.unlink()
+                    except Exception:
+                        pass
 
-                # Recargar explícitamente la versión previamente activa para que la memoria nunca quede sirviendo un candidato
+                # Recargar explícitamente la versión previamente activa solo tras completar la restauración íntegra de archivos
                 ml_service.load_active_model(target_version=previous_active_version)
                 raise RuntimeError(f"Fallo al publicar y registrar modelo en producción: {pub_err}")
 

@@ -89,6 +89,37 @@ class TestRobustBackendAPI(unittest.TestCase):
             cls.token = ""
             cls.auth_headers = {}
 
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        champion_version = "v20261117002816"
+        champion_manifest = {
+            "model_version": champion_version,
+            "model_file": f"model_{champion_version}.joblib",
+            "metadata_file": f"metadata_{champion_version}.json",
+            "threshold": 0.77,
+            "published_at": "2026-11-17T00:32:24Z",
+        }
+        manifest_path = settings.ARTIFACTS_DIR / "active_version.json"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(champion_manifest, f, indent=2)
+
+        champ_model = settings.ARTIFACTS_DIR / f"model_{champion_version}.joblib"
+        champ_meta = settings.ARTIFACTS_DIR / f"metadata_{champion_version}.json"
+        if champ_model.exists():
+            shutil.copyfile(champ_model, settings.ARTIFACTS_DIR / "model_latest.joblib")
+        if champ_meta.exists():
+            shutil.copyfile(champ_meta, settings.ARTIFACTS_DIR / "metadata_latest.json")
+
+        # Purgar cualquier artefacto incidental generado durante las pruebas de reentrenamiento
+        for incidental in settings.ARTIFACTS_DIR.glob("*_v20261123*"):
+            try:
+                incidental.unlink()
+            except Exception:
+                pass
+
+        ml_service.load_active_model(target_version=champion_version, raise_on_missing=False)
+
     # =========================================================================
     # 1. PRUEBAS DE SALUD Y ARQUITECTURA
     # =========================================================================
@@ -723,6 +754,76 @@ class TestRobustBackendAPI(unittest.TestCase):
         self.assertEqual(manifest_after["model_version"], version_before)
         # Verificar que ml_service en memoria sigue sirviendo la versión previa autorizada
         self.assertEqual(ml_service.model_version, version_before)
+
+    def test_24_rejected_model_does_not_supersede_valid_retrain(self):
+        """Verifica que un modelo rechazado no supersede ni bloquee un reentrenamiento válido (Qodo Finding 1)."""
+        v_rejected = "v_test_rejected_candidate_888"
+        with SessionLocal() as db:
+            db.query(ModelRun).filter(ModelRun.model_version == v_rejected).delete()
+            rejected_run = ModelRun(
+                model_version=v_rejected,
+                model_name="HistGradientBoostingClassifier",
+                threshold=0.77,
+                metrics={"mcc": 0.40, "confusion_matrix": {"tn": 1, "fp": 0, "fn": 0, "tp": 1}},
+                is_active=False,
+            )
+            db.add(rejected_run)
+            db.commit()
+
+        try:
+            from app.services.retrain_service import run_retrain_pipeline
+            result = run_retrain_pipeline()
+            self.assertNotEqual(result.get("status"), "superseded")
+            self.assertNotEqual(result.get("new_model_version"), v_rejected)
+        finally:
+            with SessionLocal() as db:
+                db.query(ModelRun).filter(ModelRun.model_version == v_rejected).delete()
+                # Asegurar modelo activo real
+                real_active = db.query(ModelRun).filter(ModelRun.is_active == True).first()
+                if not real_active:
+                    last_run = db.query(ModelRun).order_by(ModelRun.id.desc()).first()
+                    if last_run:
+                        last_run.is_active = True
+                    db.commit()
+
+    def test_25_failed_publication_restores_dataset_status(self):
+        """Verifica que la compensación ante fallo de publicación restaure el estado del dataset (Qodo Finding 2)."""
+        from unittest.mock import patch
+        import shutil
+
+        # Crear un dataset en estado uploaded
+        with SessionLocal() as db:
+            ds = TrainingDataset(
+                filename="test_dataset_retry.csv",
+                row_count=100,
+                file_size_bytes=1024,
+                status="uploaded",
+                notes="adult.csv",
+            )
+            db.add(ds)
+            db.commit()
+            db.refresh(ds)
+            ds_id = ds.id
+
+        # Simular fallo en shutil.copyfile durante la fase de publicación en disco (después de DB commit)
+        def crash_copyfile(*args, **kwargs):
+            raise OSError("Fallo simulado de disco durante copia de artefactos de compatibilidad")
+
+        try:
+            from app.services.retrain_service import run_retrain_pipeline
+            with patch.object(shutil, "copyfile", side_effect=crash_copyfile):
+                with self.assertRaises(RuntimeError):
+                    run_retrain_pipeline(dataset_id=ds_id)
+
+            # Verificar que el dataset fue restaurado a "uploaded" para permitir reintentos automáticos
+            with SessionLocal() as db:
+                ds_check = db.query(TrainingDataset).filter(TrainingDataset.id == ds_id).first()
+                self.assertIsNotNone(ds_check)
+                self.assertEqual(ds_check.status, "uploaded")
+        finally:
+            with SessionLocal() as db:
+                db.query(TrainingDataset).filter(TrainingDataset.id == ds_id).delete()
+                db.commit()
 
 
 if __name__ == "__main__":
