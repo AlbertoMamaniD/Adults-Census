@@ -697,6 +697,33 @@ class TestRobustBackendAPI(unittest.TestCase):
                 current_real.is_active = True
             db.commit()
 
+    def test_23_failed_retrain_does_not_leave_uncommitted_model_active(self):
+        """Verifica que un fallo durante el commit de reentrenamiento no deje activo un modelo no confirmado (Qodo Finding 1)."""
+        from unittest.mock import patch
+        from sqlalchemy.orm import Session
+        from app.services.retrain_service import run_retrain_pipeline
+
+        active_version_file = settings.ARTIFACTS_DIR / "active_version.json"
+        with open(active_version_file, "r", encoding="utf-8") as f:
+            manifest_before = json.load(f)
+        version_before = manifest_before["model_version"]
+
+        orig_commit = Session.commit
+        def crash_commit(*args, **kwargs):
+            raise RuntimeError("Fallo simulado de base de datos durante commit de reentrenamiento")
+
+        with patch.object(Session, "commit", side_effect=crash_commit):
+            with self.assertRaises(RuntimeError):
+                run_retrain_pipeline()
+
+        # Verificar que active_version.json en disco preserva de manera inmutable el modelo previo
+        with open(active_version_file, "r", encoding="utf-8") as f:
+            manifest_after = json.load(f)
+
+        self.assertEqual(manifest_after["model_version"], version_before)
+        # Verificar que ml_service en memoria sigue sirviendo la versión previa autorizada
+        self.assertEqual(ml_service.model_version, version_before)
+
 
 if __name__ == "__main__":
     unittest.main()

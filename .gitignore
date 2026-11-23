@@ -4,6 +4,8 @@ __pycache__/
 .ipynb_checkpoints/
 .env
 artifacts/.jwt_secret
+artifacts/.publish.lock
+*.lock
 data/*.csv
 !data/adult.csv
 artifacts/*.joblib

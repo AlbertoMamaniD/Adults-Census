@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from datetime import datetime, timezone
 import json
 import logging
@@ -57,6 +58,37 @@ _retrain_pipeline_lock = threading.Lock()
 MAX_CATEGORICAL_CARDINALITY = 100
 
 
+@contextlib.contextmanager
+def cross_process_publish_lock(artifacts_dir: Path):
+    """Bloqueo a nivel de proceso (cross-process) para coordinar la publicación atómica entre workers (Qodo Finding 2)."""
+    lock_file = artifacts_dir / ".publish.lock"
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    f = open(lock_file, "a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        try:
+            f.close()
+        except Exception:
+            pass
+
+
 def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[int] = None) -> Dict[str, Any]:
     """
     Ejecuta el pipeline de reentrenamiento CRISP-ML(Q) de forma síncrona en un hilo de trabajo aislado.
@@ -66,6 +98,7 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
     if not acquired:
         raise RuntimeError("Ya existe un proceso de reentrenamiento ejecutándose concurrentemente.")
 
+    training_started_at = datetime.now(timezone.utc)
     try:
         if csv_path is None or not csv_path.exists():
             csv_path = settings.DATA_DIR / "adult.csv"
@@ -270,59 +303,127 @@ def run_retrain_pipeline(csv_path: Optional[Path] = None, dataset_id: Optional[i
         with open(versioned_meta_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
 
-        # 6 y 7. Publicación atómica coordinada y persistencia en Base de Datos (Qodo Finding 2 y 5)
-        # Se adquiere el bloqueo transaccional de base de datos antes de reemplazar el manifiesto y artefactos
-        # para garantizar orden estricto y sincronía entre disco, memoria y base de datos.
-        active_manifest = {
-            "model_version": new_version,
-            "model_file": f"model_{new_version}.joblib",
-            "metadata_file": f"metadata_{new_version}.json",
-            "threshold": robust_threshold,
-            "published_at": datetime.now(timezone.utc).isoformat(),
-        }
-        tmp_manifest_path = artifacts_dir / f"active_version_{new_version}.tmp"
-        with open(tmp_manifest_path, "w", encoding="utf-8") as f:
-            json.dump(active_manifest, f, indent=2)
+        # 6 y 7. Publicación atómica coordinada con protección ante fallos y bloqueo entre procesos (Qodo Finding 1 y 2)
+        # Se asegura que ante cualquier fallo antes o durante el commit en base de datos,
+        # los archivos previos sean íntegramente restaurados y el modelo previo explícitamente recargado en memoria.
+        with cross_process_publish_lock(artifacts_dir):
+            active_manifest = {
+                "model_version": new_version,
+                "model_file": f"model_{new_version}.joblib",
+                "metadata_file": f"metadata_{new_version}.json",
+                "threshold": robust_threshold,
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            }
+            tmp_manifest_path = artifacts_dir / f"active_version_{new_version}.tmp"
+            with open(tmp_manifest_path, "w", encoding="utf-8") as f:
+                json.dump(active_manifest, f, indent=2)
 
-        active_version_path = artifacts_dir / "active_version.json"
+            active_version_path = artifacts_dir / "active_version.json"
 
-        try:
-            with SessionLocal() as db_session:
-                if db_session.bind.dialect.name == "postgresql":
-                    db_session.execute(text("SELECT pg_advisory_xact_lock(742198)"))
+            # 1. Preservar manifiesto y artefactos de compatibilidad previos en memoria antes de cualquier reemplazo (Qodo Finding 1)
+            old_manifest_bytes: Optional[bytes] = active_version_path.read_bytes() if active_version_path.exists() else None
+            old_model_latest_bytes: Optional[bytes] = latest_model_path.read_bytes() if latest_model_path.exists() else None
+            old_meta_latest_bytes: Optional[bytes] = latest_meta_path.read_bytes() if latest_meta_path.exists() else None
 
-                # Publicar manifiesto y artefactos bajo el lock
+            # Obtener la versión actualmente activa para poder restaurarla de manera determinista ante fallos
+            with SessionLocal() as check_session:
+                prev_run = check_session.query(ModelRun).filter(ModelRun.is_active == True).order_by(ModelRun.id.desc()).first()
+                previous_active_version = prev_run.model_version if prev_run else ml_service.model_version
+
+                # Protocolo de promoción: verificar que no haya una activación más reciente que supere a este entrenamiento (Qodo Finding 2)
+                latest_run = check_session.query(ModelRun).order_by(ModelRun.id.desc()).first()
+                if latest_run and latest_run.created_at:
+                    created_at_utc = latest_run.created_at.replace(tzinfo=timezone.utc) if latest_run.created_at.tzinfo is None else latest_run.created_at
+                    if created_at_utc > training_started_at:
+                        logger.warning(
+                            f"Existe una versión activa más reciente ({latest_run.model_version}) "
+                            f"activada en {created_at_utc}. Abortando promoción de {new_version}."
+                        )
+                        if tmp_manifest_path.exists():
+                            tmp_manifest_path.unlink()
+                        return {
+                            "status": "superseded",
+                            "message": f"El modelo candidato '{new_version}' fue superado por una versión más reciente activa ({latest_run.model_version}).",
+                            "new_model_version": latest_run.model_version,
+                            "threshold": latest_run.threshold,
+                            "metrics": latest_run.metrics or metrics_payload,
+                        }
+
+            db_committed = False
+            try:
+                # 2. Registrar y confirmar primero en Base de Datos de manera transaccional (Qodo Finding 1 y 2)
+                with SessionLocal() as db_session:
+                    if db_session.bind.dialect.name == "postgresql":
+                        db_session.execute(text("SELECT pg_advisory_xact_lock(742198)"))
+
+                    db_session.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
+                    new_run = ModelRun(
+                        model_version=new_version,
+                        model_name=metadata["model_name"],
+                        threshold=robust_threshold,
+                        metrics=metrics_payload,
+                        parameters=metadata["parameters"],
+                        is_active=True,
+                    )
+                    db_session.add(new_run)
+                    if dataset_id is not None:
+                        dataset_record = db_session.query(TrainingDataset).filter(TrainingDataset.id == dataset_id).first()
+                        if dataset_record:
+                            dataset_record.status = "processed"
+                    db_session.commit()
+                    db_committed = True
+                    logger.info(f"Nuevo modelo registrado y activado exitosamente en base de datos: {new_version}")
+
+                # 3. Solo tras el commit exitoso en base de datos, reemplazar manifiesto y artefactos en disco
                 os.replace(tmp_manifest_path, active_version_path)
                 shutil.copyfile(versioned_model_path, latest_model_path)
                 shutil.copyfile(versioned_meta_path, latest_meta_path)
 
-                # Cargar y verificar en memoria antes de confirmar transacción
+                # 4. Recargar el modelo en memoria con la versión recién confirmada
                 ml_service.load_active_model(target_version=new_version, raise_on_missing=True)
 
-                # Actualizar y confirmar en base de datos
-                db_session.query(ModelRun).filter(ModelRun.is_active == True).update({"is_active": False})
-                new_run = ModelRun(
-                    model_version=new_version,
-                    model_name=metadata["model_name"],
-                    threshold=robust_threshold,
-                    metrics=metrics_payload,
-                    parameters=metadata["parameters"],
-                    is_active=True,
-                )
-                db_session.add(new_run)
-                if dataset_id is not None:
-                    dataset_record = db_session.query(TrainingDataset).filter(TrainingDataset.id == dataset_id).first()
-                    if dataset_record:
-                        dataset_record.status = "processed"
-                db_session.commit()
-                logger.info(f"Nuevo modelo registrado y activado exitosamente en base de datos: {new_version}")
-        except Exception as pub_err:
-            logger.error(f"Error coordinado al publicar y registrar versión {new_version}: {pub_err}")
-            if tmp_manifest_path.exists():
-                tmp_manifest_path.unlink()
-            # Restaurar en memoria el modelo previamente activo en base de datos
-            ml_service.load_active_model()
-            raise RuntimeError(f"Fallo al publicar y registrar modelo en producción: {pub_err}")
+            except Exception as pub_err:
+                logger.error(f"Error durante la publicación de la versión {new_version}: {pub_err}")
+                if tmp_manifest_path.exists():
+                    try:
+                        tmp_manifest_path.unlink()
+                    except Exception:
+                        pass
+
+                # Purgar archivos de artefactos candidatos no confirmados para no dejar basura en disco
+                for cand_file in [versioned_model_path, versioned_meta_path]:
+                    if cand_file.exists():
+                        try:
+                            cand_file.unlink()
+                        except Exception:
+                            pass
+
+                # Si falló la publicación en disco después de haber hecho commit en DB, compensar en base de datos
+                if db_committed:
+                    try:
+                        with SessionLocal() as comp_session:
+                            comp_session.query(ModelRun).filter(ModelRun.model_version == new_version).update({"is_active": False})
+                            if previous_active_version:
+                                comp_session.query(ModelRun).filter(ModelRun.model_version == previous_active_version).update({"is_active": True})
+                            comp_session.commit()
+                            logger.info(f"Compensación ejecutada: versión {new_version} desactivada y restaurada {previous_active_version}")
+                    except Exception as comp_err:
+                        logger.error(f"Error en compensación de base de datos: {comp_err}")
+
+                # Restaurar manifiesto y artefactos de compatibilidad previos íntegramente
+                if old_manifest_bytes is not None:
+                    active_version_path.write_bytes(old_manifest_bytes)
+                elif active_version_path.exists():
+                    active_version_path.unlink()
+
+                if old_model_latest_bytes is not None:
+                    latest_model_path.write_bytes(old_model_latest_bytes)
+                if old_meta_latest_bytes is not None:
+                    latest_meta_path.write_bytes(old_meta_latest_bytes)
+
+                # Recargar explícitamente la versión previamente activa para que la memoria nunca quede sirviendo un candidato
+                ml_service.load_active_model(target_version=previous_active_version)
+                raise RuntimeError(f"Fallo al publicar y registrar modelo en producción: {pub_err}")
 
         return {
             "status": "success",

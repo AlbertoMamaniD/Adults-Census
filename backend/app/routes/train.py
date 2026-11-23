@@ -375,15 +375,15 @@ async def trigger_retrain(
             await asyncio.sleep(0.1)
 
             # 5. Finalización con control de calidad (Qodo Finding 3)
-            if result.get("status") == "rejected":
+            if result.get("status") in ["rejected", "superseded"]:
                 await emit_progress(
-                    "rejected",
+                    result["status"],
                     100,
                     result["message"],
                     payload=result,
                 )
                 return RetrainResponse(
-                    status="rejected",
+                    status=result["status"],
                     message=result["message"],
                     new_model_version=result["new_model_version"],
                     updated_metrics=result["metrics"],
