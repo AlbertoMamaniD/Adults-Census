@@ -159,7 +159,8 @@ describe('Componentes del Frontend — Pruebas de Renderizado e Inyección DOM',
       await loadMetricsData(root);
 
       const elTitle = root.querySelector('#cm-eval-title');
-      assert.strictEqual(elTitle.textContent, 'Matriz de Rendimiento Crediticio (2.500 Clientes Evaluados)');
+      assert.strictEqual(elTitle.textContent, `Matriz de Rendimiento Crediticio (${(2500).toLocaleString()} Clientes Evaluados)`);
+      assert.match(elTitle.textContent, /Matriz de Rendimiento Crediticio \(2[.,\s]?500 Clientes Evaluados\)/);
     } finally {
       apiService.getMetrics = originalGetMetrics;
     }
